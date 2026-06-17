@@ -324,8 +324,13 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 	const setPullRequestCommentsLoaded = useAtomSet(pullRequestCommentsLoadedAtom)
 	const setPullRequestDiffCache = useAtomSet(pullRequestDiffCacheAtom)
 	const [activeModal, setActiveModal] = useAtom(activeModalAtom)
+	const cancelledCommentImplementationRequestsRef = useRef<Set<string>>(new Set())
 	const themeId = useAtomValue(themeIdAtom)
-	const closeActiveModal = () => setActiveModal(initialModal)
+	const closeActiveModal = () =>
+		setActiveModal((current) => {
+			if (current._tag === "CommentImplementation") cancelledCommentImplementationRequestsRef.current.add(current.requestKey)
+			return initialModal
+		})
 	const labelModalActive = Modal.$is("Label")(activeModal)
 	const closeModalActive = Modal.$is("Close")(activeModal)
 	const codexExplanationModalActive = Modal.$is("CodexExplanation")(activeModal)
@@ -1338,6 +1343,7 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 		const input = selectedReviewCommentImplementationInput()
 		if (!input) return
 		const requestKey = [selectedPullRequest.url, input.threadId, input.commentId].join(":")
+		cancelledCommentImplementationRequestsRef.current.delete(requestKey)
 		setCommentImplementationModal({
 			requestKey,
 			input,
@@ -1354,6 +1360,7 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 		})
 		void implementReviewComment(input)
 			.then((result) => {
+				if (cancelledCommentImplementationRequestsRef.current.has(requestKey)) return
 				setCommentImplementationModal((current) =>
 					current.requestKey === requestKey
 						? {
@@ -1372,6 +1379,7 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 				)
 			})
 			.catch((error) => {
+				if (cancelledCommentImplementationRequestsRef.current.has(requestKey)) return
 				setCommentImplementationModal((current) =>
 					current.requestKey === requestKey
 						? {
@@ -1392,7 +1400,14 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 	}
 
 	const confirmCommentImplementation = () => {
-		if (!commentImplementationModal.input || commentImplementationModal.status !== "ready" || commentImplementationModal.diff.trim().length === 0) return
+		if (commentImplementationModal.status === "done" || commentImplementationModal.status === "error") {
+			closeActiveModal()
+			return
+		}
+		if (!commentImplementationModal.input || commentImplementationModal.status !== "ready" || commentImplementationModal.diff.trim().length === 0) {
+			if (commentImplementationModal.status === "ready") closeActiveModal()
+			return
+		}
 		const input = {
 			...commentImplementationModal.input,
 			checkoutPath: commentImplementationModal.checkoutPath,
@@ -1405,11 +1420,13 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 		setCommentImplementationModal((current) => (current.requestKey === requestKey ? { ...current, status: "confirming", error: null } : current))
 		void confirmReviewCommentImplementation(input)
 			.then(() => {
+				if (cancelledCommentImplementationRequestsRef.current.has(requestKey)) return
 				setCommentImplementationModal((current) => (current.requestKey === requestKey ? { ...current, status: "done", error: null } : current))
 				refreshSelectedComments()
 				flashNotice("Implemented comment, pushed, replied, and resolved thread")
 			})
 			.catch((error) => {
+				if (cancelledCommentImplementationRequestsRef.current.has(requestKey)) return
 				setCommentImplementationModal((current) => (current.requestKey === requestKey ? { ...current, status: "error", error: errorMessage(error) } : current))
 				flashNotice(errorMessage(error))
 			})
