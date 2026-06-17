@@ -58,7 +58,7 @@ const branchRemote = (upstream: string, headRefName: string): string | null => {
 const envPathList = (value: string | undefined): readonly string[] => (value ?? "").split(":").filter((entry) => entry.length > 0)
 const checkoutSearchRoots = (): readonly string[] => {
 	const home = process.env.HOME
-	const commonRoots = home ? [`${home}/Work`, `${home}/work`, `${home}/Projects`, `${home}/projects`] : []
+	const commonRoots = home ? [`${home}/Work`, `${home}/work`, `${home}/Projects`, `${home}/projects`, home] : []
 	const roots = [process.cwd(), ...envPathList(process.env.GHUI_REPO_ROOTS), ...commonRoots]
 	return Array.from(new Set(roots))
 }
