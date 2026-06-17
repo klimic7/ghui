@@ -10,6 +10,22 @@ const wrapText = (text: string, width: number): readonly string[] =>
 		return rows
 	})
 
+export const commentImplementationModalBodyText = (state: CommentImplementationModalState): string =>
+	state.status === "running"
+		? "Asking Codex to implement the selected review comment..."
+		: state.status === "error"
+			? (state.error ?? "Implementation failed")
+			: [
+					state.codexOutput ? `Codex:\n${state.codexOutput}` : "",
+					state.diff ? `Diff:\n${state.diff}` : "Diff:\n(no changes)",
+					state.checkoutPath ? `Checkout:\n${state.checkoutPath}` : "",
+					state.commitMessage ? `Commit:\n${state.commitMessage}` : "",
+					state.pushRemote ? `Push:\n${state.pushRemote}` : "",
+					state.replyBody ? `Reply:\n${state.replyBody}` : "",
+				]
+					.filter(Boolean)
+					.join("\n\n")
+
 export const CommentImplementationModal = ({
 	state,
 	loadingIndicator,
@@ -34,21 +50,7 @@ export const CommentImplementationModal = ({
 				: state.status === "done"
 					? "Implementation complete"
 					: "Implement comment"
-	const rawBody =
-		state.status === "running"
-			? "Asking Codex to implement the selected review comment..."
-			: state.status === "error"
-				? (state.error ?? "Implementation failed")
-				: [
-						state.codexOutput ? `Codex:\n${state.codexOutput}` : "",
-						state.diff ? `Diff:\n${state.diff}` : "Diff:\n(no changes)",
-						state.checkoutPath ? `Checkout:\n${state.checkoutPath}` : "",
-						state.commitMessage ? `Commit:\n${state.commitMessage}` : "",
-						state.pushRemote ? `Push:\n${state.pushRemote}` : "",
-						state.replyBody ? `Reply:\n${state.replyBody}` : "",
-					]
-						.filter(Boolean)
-						.join("\n\n")
+	const rawBody = commentImplementationModalBodyText(state)
 	const rows = wrapText(rawBody, contentWidth)
 	const maxScroll = Math.max(0, rows.length - bodyHeight)
 	const scrollOffset = Math.max(0, Math.min(state.scrollOffset, maxScroll))
@@ -67,7 +69,7 @@ export const CommentImplementationModal = ({
 				<HintRow
 					items={[
 						{ key: "↑↓", label: "scroll", disabled: maxScroll === 0 },
-						{ key: "y", label: "copy codex", disabled: state.codexOutput.trim().length === 0 },
+						{ key: "y", label: "copy", disabled: rawBody.trim().length === 0 },
 						{ key: "enter", label: "commit+push", disabled: state.status !== "ready" || state.diff.trim().length === 0 },
 						{ key: "esc", label: state.status === "done" ? "close" : "cancel" },
 					]}

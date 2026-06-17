@@ -189,6 +189,7 @@ import {
 	type ChangedFilesModalState,
 	type CloseModalState,
 	type CodexExplanationModalState,
+	commentImplementationModalBodyText,
 	type CommandPaletteState,
 	type CommentImplementationModalState,
 	type CommentModalState,
@@ -2190,13 +2191,13 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 			scrollOffset: Math.max(0, current.scrollOffset + delta),
 		}))
 	const copyCommentImplementation = () => {
-		const text = commentImplementationModal.codexOutput.trim()
+		const text = commentImplementationModalBodyText(commentImplementationModal).trim()
 		if (text.length === 0) {
-			flashNotice("No Codex response to copy")
+			flashNotice("No implementation modal content to copy")
 			return
 		}
 		void copyToClipboard(text)
-			.then(() => flashNotice("Codex response copied"))
+			.then(() => flashNotice("Implementation modal content copied"))
 			.catch((error) => flashNotice(errorMessage(error)))
 	}
 	const moveLabelSelection = (delta: -1 | 1) =>

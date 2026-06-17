@@ -5,7 +5,7 @@
 export { ChangedFilesModal } from "./modals/ChangedFilesModal.js"
 export { CloseModal } from "./modals/CloseModal.js"
 export { CodexExplanationModal } from "./modals/CodexExplanationModal.js"
-export { CommentImplementationModal } from "./modals/CommentImplementationModal.js"
+export { CommentImplementationModal, commentImplementationModalBodyText } from "./modals/CommentImplementationModal.js"
 export { CommentModal } from "./modals/CommentModal.js"
 export { CommentThreadModal } from "./modals/CommentThreadModal.js"
 export { DeleteCommentModal } from "./modals/DeleteCommentModal.js"
