@@ -87,6 +87,7 @@ export interface CommentImplementationModalState {
 	readonly requestKey: string
 	readonly input: ImplementReviewCommentInput | null
 	readonly status: "running" | "ready" | "confirming" | "done" | "error"
+	readonly phase: string
 	readonly subtitle: string
 	readonly codexOutput: string
 	readonly diff: string
@@ -216,6 +217,7 @@ export const initialCommentImplementationModalState: CommentImplementationModalS
 	requestKey: "",
 	input: null,
 	status: "running",
+	phase: "",
 	subtitle: "",
 	codexOutput: "",
 	diff: "",

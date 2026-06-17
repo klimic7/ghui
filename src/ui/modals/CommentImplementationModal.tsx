@@ -12,19 +12,21 @@ const wrapText = (text: string, width: number): readonly string[] =>
 
 export const commentImplementationModalBodyText = (state: CommentImplementationModalState): string =>
 	state.status === "running"
-		? "Asking Codex to implement the selected review comment..."
-		: state.status === "error"
-			? (state.error ?? "Implementation failed")
-			: [
-					state.codexOutput ? `Codex:\n${state.codexOutput}` : "",
-					state.diff ? `Diff:\n${state.diff}` : "Diff:\n(no changes)",
-					state.checkoutPath ? `Checkout:\n${state.checkoutPath}` : "",
-					state.commitMessage ? `Commit:\n${state.commitMessage}` : "",
-					state.pushRemote ? `Push:\n${state.pushRemote}` : "",
-					state.replyBody ? `Reply:\n${state.replyBody}` : "",
-				]
-					.filter(Boolean)
-					.join("\n\n")
+		? `${state.phase || "Working"}...`
+		: state.status === "confirming"
+			? `${state.phase || "Committing and pushing"}...`
+			: state.status === "error"
+				? (state.error ?? "Implementation failed")
+				: [
+						state.codexOutput ? `Codex:\n${state.codexOutput}` : "",
+						state.diff ? `Changes:\n${state.diff}` : "Changes:\n(no changes)",
+						state.checkoutPath ? `Checkout:\n${state.checkoutPath}` : "",
+						state.commitMessage ? `Commit:\n${state.commitMessage}` : "",
+						state.pushRemote ? `Push:\n${state.pushRemote}` : "",
+						state.replyBody ? `Reply:\n${state.replyBody}` : "",
+					]
+						.filter(Boolean)
+						.join("\n\n")
 
 export const CommentImplementationModal = ({
 	state,
@@ -44,9 +46,9 @@ export const CommentImplementationModal = ({
 	const { contentWidth, bodyHeight } = standardModalDims(modalWidth, modalHeight)
 	const title =
 		state.status === "running"
-			? `${loadingIndicator} Implement comment`
+			? `${loadingIndicator} ${state.phase || "Implement comment"}`
 			: state.status === "confirming"
-				? `${loadingIndicator} Confirming implementation`
+				? `${loadingIndicator} ${state.phase || "Confirming implementation"}`
 				: state.status === "done"
 					? "Implementation complete"
 					: "Implement comment"

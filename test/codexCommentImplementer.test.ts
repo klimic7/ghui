@@ -40,11 +40,8 @@ const fakeCommandRunner = (recorder: RecordedCall[], options: FakeCommandRunnerO
 						return ""
 					}
 					if (command === "codex") return "Upravil jsem implementaci."
-					if (command === "git" && args.join(" ") === "diff --binary") return "diff --git a/src/existing.ts b/src/existing.ts\n@@ -1 +1 @@\n-old\n+new\n"
+					if (command === "git" && args.join(" ") === "diff --name-status") return "M\tsrc/existing.ts\n"
 					if (command === "git" && args.join(" ") === "ls-files --others --exclude-standard -z") return "src/new.ts\0"
-					if (command === "git" && args[0] === "diff" && args.includes("--no-index")) {
-						return "diff --git a/src/new.ts b/src/new.ts\nnew file mode 100644\n--- /dev/null\n+++ b/src/new.ts\n@@ -0,0 +1 @@\n+export const created = true\n"
-					}
 					return ""
 				})()
 				const result: CommandResult = { stdout, stderr: "", exitCode: 0 }
@@ -92,16 +89,27 @@ describe("CodexCommentImplementer", () => {
 			recorder,
 		)
 
-		expect(result.diff).toContain("diff --git a/src/existing.ts b/src/existing.ts")
-		expect(result.diff).toContain("diff --git a/src/new.ts b/src/new.ts")
-		expect(result.diff).toContain("new file mode 100644")
+		expect(result.diff).toContain("M\tsrc/existing.ts")
+		expect(result.diff).toContain("A\tsrc/new.ts")
 		expect(result.checkoutPath).toBe("/workspace/repo")
 		expect(result.pushRemote).toBe("origin")
-		const untrackedDiffCall = recorder.find((call) => call.command === "git" && call.args.includes("--no-index"))
-		expect(untrackedDiffCall?.options?.successExitCodes).toEqual([0, 1])
+		expect(recorder.some((call) => call.command === "git" && call.args.includes("--no-index"))).toBe(false)
 		const codexCall = recorder.find((call) => call.command === "codex")
 		expect(codexCall?.options?.stdin).toContain("Celý PR diff pro kontext")
 		expect(codexCall?.options?.stdin).toContain("diff --git a/src/related.ts b/src/related.ts")
+	})
+
+	test("reports implementation progress phases", async () => {
+		const recorder: RecordedCall[] = []
+		const phases: string[] = []
+		await runWith(
+			CodexCommentImplementer.use((codex) => codex.implementReviewComment({ ...reviewCommentInput(), onProgress: (phase) => phases.push(phase) })),
+			recorder,
+		)
+
+		expect(phases).toContain("Finding local checkout")
+		expect(phases).toContain("Running Codex")
+		expect(phases).toContain("Collecting change summary")
 	})
 
 	test("does not reject remotes with a different repository name", async () => {

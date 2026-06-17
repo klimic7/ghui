@@ -1365,6 +1365,7 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 			requestKey,
 			input,
 			status: "running",
+			phase: "Starting",
 			subtitle: `${input.path}:${input.line}`,
 			codexOutput: "",
 			diff: "",
@@ -1375,7 +1376,12 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 			error: null,
 			scrollOffset: 0,
 		})
-		void implementReviewComment(input)
+		const progressInput = {
+			...input,
+			onProgress: (phase: string) =>
+				setCommentImplementationModal((current) => (current.requestKey === requestKey && current.status === "running" ? { ...current, phase } : current)),
+		}
+		void implementReviewComment(progressInput)
 			.then((result) => {
 				if (cancelledCommentImplementationRequestsRef.current.has(requestKey)) return
 				setCommentImplementationModal((current) =>
@@ -1383,6 +1389,7 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 						? {
 								...current,
 								status: "ready",
+								phase: "",
 								codexOutput: result.codexOutput,
 								diff: result.diff,
 								checkoutPath: result.checkoutPath,
@@ -1402,6 +1409,7 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 						? {
 								...current,
 								status: "error",
+								phase: "",
 								codexOutput: "",
 								diff: "",
 								checkoutPath: "",
@@ -1434,17 +1442,17 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 			expectedDiff: commentImplementationModal.diff,
 		}
 		const requestKey = commentImplementationModal.requestKey
-		setCommentImplementationModal((current) => (current.requestKey === requestKey ? { ...current, status: "confirming", error: null } : current))
+		setCommentImplementationModal((current) => (current.requestKey === requestKey ? { ...current, status: "confirming", phase: "Committing and pushing", error: null } : current))
 		void confirmReviewCommentImplementation(input)
 			.then(() => {
 				if (cancelledCommentImplementationRequestsRef.current.has(requestKey)) return
-				setCommentImplementationModal((current) => (current.requestKey === requestKey ? { ...current, status: "done", error: null } : current))
+				setCommentImplementationModal((current) => (current.requestKey === requestKey ? { ...current, status: "done", phase: "", error: null } : current))
 				refreshSelectedComments()
 				flashNotice("Implemented comment, pushed, replied, and resolved thread")
 			})
 			.catch((error) => {
 				if (cancelledCommentImplementationRequestsRef.current.has(requestKey)) return
-				setCommentImplementationModal((current) => (current.requestKey === requestKey ? { ...current, status: "error", error: errorMessage(error) } : current))
+				setCommentImplementationModal((current) => (current.requestKey === requestKey ? { ...current, status: "error", phase: "", error: errorMessage(error) } : current))
 				flashNotice(errorMessage(error))
 			})
 	}
