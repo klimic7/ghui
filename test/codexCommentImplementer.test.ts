@@ -10,23 +10,35 @@ interface RecordedCall {
 	readonly options?: RunOptions
 }
 
-const fakeCommandRunner = (recorder: RecordedCall[]) =>
-	Layer.succeed(
+interface FakeCommandRunnerOptions {
+	readonly currentBranch?: string
+	readonly remoteBranchAvailable?: boolean
+}
+
+const fakeCommandRunner = (recorder: RecordedCall[], options: FakeCommandRunnerOptions = {}) => {
+	let checkedOut = false
+	const remoteBranchAvailable = () => checkedOut || (options.remoteBranchAvailable ?? true)
+	return Layer.succeed(
 		CommandRunner,
 		CommandRunner.of({
-			run: (command, args, options) => {
-				recorder.push({ command, args: [...args], ...(options ? { options } : {}) })
+			run: (command, args, runOptions) => {
+				recorder.push({ command, args: [...args], ...(runOptions ? { options: runOptions } : {}) })
 				const stdout = (() => {
 					if (command === "git" && args.join(" ") === "rev-parse --show-toplevel") return "/workspace/repo\n"
 					if (command === "git" && args.join(" ") === "-C /workspace/repo rev-parse --show-toplevel") return "/workspace/repo\n"
 					if (command === "find") return "/workspace/repo/.git\n"
-					if (command === "git" && args.join(" ") === "branch --show-current") return "feature/review\n"
+					if (command === "git" && args.join(" ") === "branch --show-current") return checkedOut ? "feature/review\n" : `${options.currentBranch ?? "feature/review"}\n`
 					if (command === "git" && args.join(" ") === "status --porcelain") return ""
 					if (command === "git" && args.join(" ") === "rev-parse --abbrev-ref --symbolic-full-name @{u}") return "origin/feature/review\n"
 					if (command === "git" && args.join(" ") === "remote -v") return "origin\tgit@github.com:owner/repo.git (fetch)\norigin\tgit@github.com:owner/repo.git (push)\n"
 					if (command === "git" && args.join(" ") === "remote") return "origin\nupstream\n"
-					if (command === "git" && args.join(" ") === "ls-remote --heads origin feature/review") return "abc123\trefs/heads/feature/review\n"
+					if (command === "git" && args.join(" ") === "branch --remotes --list */feature/review") return remoteBranchAvailable() ? "origin/feature/review\n" : ""
+					if (command === "git" && args.join(" ") === "ls-remote --heads origin feature/review") return remoteBranchAvailable() ? "abc123\trefs/heads/feature/review\n" : ""
 					if (command === "git" && args[0] === "ls-remote") return ""
+					if (command === "gh" && args.join(" ") === "pr checkout 42 --repo owner/repo") {
+						checkedOut = true
+						return ""
+					}
 					if (command === "codex") return "Upravil jsem implementaci."
 					if (command === "git" && args.join(" ") === "diff --binary") return "diff --git a/src/existing.ts b/src/existing.ts\n@@ -1 +1 @@\n-old\n+new\n"
 					if (command === "git" && args.join(" ") === "ls-files --others --exclude-standard -z") return "src/new.ts\0"
@@ -41,10 +53,11 @@ const fakeCommandRunner = (recorder: RecordedCall[]) =>
 			runSchema: <S extends Schema.Top>() => Effect.die("runSchema is not used in this test") as Effect.Effect<S["Type"], never, S["DecodingServices"]>,
 		}),
 	)
+}
 
-const runWith = <A>(effect: Effect.Effect<A, unknown, CodexCommentImplementer>, recorder: RecordedCall[]) => {
+const runWith = <A>(effect: Effect.Effect<A, unknown, CodexCommentImplementer>, recorder: RecordedCall[], options?: FakeCommandRunnerOptions) => {
 	const githubLayer = MockGitHubService.layer({ prCount: 1, repository: "owner/repo", repositories: ["owner/repo"], username: "kit" })
-	const layer = CodexCommentImplementer.layerNoDeps.pipe(Layer.provide(githubLayer), Layer.provide(fakeCommandRunner(recorder)))
+	const layer = CodexCommentImplementer.layerNoDeps.pipe(Layer.provide(githubLayer), Layer.provide(fakeCommandRunner(recorder, options)))
 	return Effect.runPromise(effect.pipe(Effect.provide(layer)) as Effect.Effect<A>)
 }
 
@@ -102,6 +115,23 @@ describe("CodexCommentImplementer", () => {
 		expect(result.checkoutPath).toBe("/workspace/repo")
 		expect(result.pushRemote).toBe("origin")
 		expect(recorder.some((call) => call.command === "codex")).toBe(true)
+	})
+
+	test("checks out the PR branch when only the repository checkout is available", async () => {
+		const recorder: RecordedCall[] = []
+		const result = await runWith(
+			CodexCommentImplementer.use((codex) => codex.implementReviewComment(reviewCommentInput())),
+			recorder,
+			{
+				currentBranch: "main",
+				remoteBranchAvailable: false,
+			},
+		)
+
+		expect(result.checkoutPath).toBe("/workspace/repo")
+		expect(result.pushRemote).toBe("origin")
+		expect(recorder.some((call) => call.command === "gh" && call.args.join(" ") === "pr checkout 42 --repo owner/repo")).toBe(true)
+		expect(recorder.filter((call) => call.command === "codex").every((call) => call.options?.cwd === "/workspace/repo")).toBe(true)
 	})
 
 	test("pushes explicitly to the resolved PR head remote and branch", async () => {

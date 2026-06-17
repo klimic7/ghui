@@ -58,6 +58,7 @@ export const CodexExplanationModal = ({
 				<HintRow
 					items={[
 						{ key: "↑↓", label: "scroll", disabled: maxScroll === 0 },
+						{ key: "y", label: "copy", disabled: state.body.trim().length === 0 },
 						{ key: "esc", label: "close" },
 					]}
 				/>

@@ -26,6 +26,7 @@ export interface BuildCloseModalCtxInput {
 export interface BuildCodexExplanationModalCtxInput {
 	readonly halfPage: number
 	readonly closeActiveModal: () => void
+	readonly copyCodexExplanation: () => void
 	readonly scrollCodexExplanation: (delta: number) => void
 }
 
@@ -33,6 +34,7 @@ export interface BuildCommentImplementationModalCtxInput {
 	readonly halfPage: number
 	readonly closeActiveModal: () => void
 	readonly confirmCommentImplementation: () => void
+	readonly copyCommentImplementation: () => void
 	readonly scrollCommentImplementation: (delta: number) => void
 }
 
@@ -113,12 +115,14 @@ export const buildAppCtx = (input: BuildAppCtxInput): AppCtx => ({
 	codexExplanationModal: {
 		halfPage: input.codexExplanationModal.halfPage,
 		closeModal: input.codexExplanationModal.closeActiveModal,
+		copy: input.codexExplanationModal.copyCodexExplanation,
 		scrollBy: input.codexExplanationModal.scrollCodexExplanation,
 	},
 	commentImplementationModal: {
 		halfPage: input.commentImplementationModal.halfPage,
 		closeModal: input.commentImplementationModal.closeActiveModal,
 		confirm: input.commentImplementationModal.confirmCommentImplementation,
+		copy: input.commentImplementationModal.copyCommentImplementation,
 		scrollBy: input.commentImplementationModal.scrollCommentImplementation,
 	},
 	pullRequestStateModal: buildPullRequestStateModalCtx(input.pullRequestStateModal),

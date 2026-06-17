@@ -157,34 +157,37 @@ export class CodexCommentImplementer extends Context.Service<
 				for (const root of checkoutSearchRoots()) {
 					const topLevel = yield* gitTopLevel(root)
 					if (topLevel) candidates.add(topLevel)
-					const found = yield* command.run("find", [root, "-maxdepth", "5", "-type", "d", "-name", ".git", "-prune"], { successExitCodes: [0, 1] })
+					const found = yield* command.run("find", [root, "-maxdepth", "5", "-name", ".git", "-prune"], { successExitCodes: [0, 1] })
 					for (const gitDir of splitLines(found.stdout)) candidates.add(dirname(gitDir))
 				}
 				return [...candidates]
 			})
 
 			const findCheckout = Effect.fn("CodexCommentImplementer.findCheckout")(function* (input: ImplementReviewCommentInput) {
-				const matches: Array<{ readonly checkoutPath: string; readonly pushRemote: string; readonly currentBranchMatches: boolean; readonly repositoryScore: number }> = []
-				for (const checkoutPath of yield* discoverCheckouts()) {
+				const matches: Array<{ readonly checkoutPath: string; readonly pushRemote: string | null; readonly currentBranchMatches: boolean; readonly repositoryScore: number }> = []
+				const discoveredCheckouts = yield* discoverCheckouts()
+				for (const checkoutPath of discoveredCheckouts) {
 					const branch = yield* command.run("git", ["branch", "--show-current"], { cwd: checkoutPath, successExitCodes: [0, 128] })
 					const currentBranchMatches = branch.exitCode === 0 && branch.stdout.trim() === input.headRefName
 					const pushRemote = yield* findPushRemote(checkoutPath, input).pipe(Effect.catch(() => Effect.succeed(null)))
-					if (!pushRemote) continue
 					const remotes = yield* command.run("git", ["remote", "-v"], { cwd: checkoutPath, successExitCodes: [0, 128] })
 					const repositoryScore = remotes.exitCode === 0 ? checkoutRepositoryScore(remotes.stdout, input.repository) : 0
+					if (!pushRemote && repositoryScore === 0 && !currentBranchMatches) continue
 					matches.push({ checkoutPath, pushRemote, currentBranchMatches, repositoryScore })
 				}
 				const match =
-					matches.find((candidate) => candidate.repositoryScore > 0 && candidate.currentBranchMatches) ??
+					matches.find((candidate) => candidate.repositoryScore > 0 && candidate.currentBranchMatches && candidate.pushRemote) ??
+					matches.find((candidate) => candidate.repositoryScore > 0 && candidate.pushRemote) ??
 					matches.find((candidate) => candidate.repositoryScore > 0) ??
+					matches.find((candidate) => candidate.currentBranchMatches && candidate.pushRemote) ??
 					matches.find((candidate) => candidate.currentBranchMatches) ??
 					matches[0]
 				if (match) return { checkoutPath: match.checkoutPath, pushRemote: match.pushRemote }
 				return yield* new CommandError({
 					command: "git",
 					args: ["branch", "--remotes", "--list", `*/${input.headRefName}`],
-					detail: `Could not find a local checkout with PR head branch ${input.headRefName}. Set GHUI_REPO_ROOTS to the parent directory containing your checkouts, or fetch the PR branch locally.`,
-					cause: input.headRefName,
+					detail: `Could not find a local checkout for ${input.repository} or PR head branch ${input.headRefName}. Searched roots: ${checkoutSearchRoots().join(", ")}. Discovered checkouts: ${discoveredCheckouts.length > 0 ? discoveredCheckouts.join(", ") : "none"}. Set GHUI_REPO_ROOTS to the parent directory containing your checkouts.`,
+					cause: discoveredCheckouts.join("\n"),
 				})
 			})
 
@@ -199,7 +202,12 @@ export class CodexCommentImplementer extends Context.Service<
 						cause: status.stdout,
 					})
 				}
-				return checkout
+				const branch = yield* command.run("git", ["branch", "--show-current"], { cwd: checkout.checkoutPath, successExitCodes: [0, 128] })
+				if (branch.exitCode !== 0 || branch.stdout.trim() !== input.headRefName) {
+					yield* command.run("gh", ["pr", "checkout", String(input.number), "--repo", input.repository], { cwd: checkout.checkoutPath, timeoutMs: 120_000 })
+				}
+				const pushRemote = checkout.pushRemote ?? (yield* findPushRemote(checkout.checkoutPath, input))
+				return { checkoutPath: checkout.checkoutPath, pushRemote }
 			})
 
 			const implementReviewComment = Effect.fn("CodexCommentImplementer.implementReviewComment")(function* (input: ImplementReviewCommentInput) {

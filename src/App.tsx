@@ -92,7 +92,14 @@ import { useLoadMore } from "./ui/pullRequests/useLoadMore.js"
 import { useFilterModal } from "./ui/filter/useFilterModal.js"
 import { useRefreshCompletionToast } from "./ui/pullRequests/useRefreshCompletionToast.js"
 import { useRepositoryDetails } from "./ui/pullRequests/useRepositoryDetails.js"
-import { confirmReviewCommentImplementationAtom, explainDiffSelectionAtom, implementReviewCommentAtom, openUrlAtom, submitPullRequestReviewAtom } from "./services/systemAtoms.js"
+import {
+	confirmReviewCommentImplementationAtom,
+	copyToClipboardAtom,
+	explainDiffSelectionAtom,
+	implementReviewCommentAtom,
+	openUrlAtom,
+	submitPullRequestReviewAtom,
+} from "./services/systemAtoms.js"
 import {
 	diffCommentAnchorIndexAtom,
 	diffCommentRangeStartIndexAtom,
@@ -164,6 +171,7 @@ import {
 	filterLabels,
 	initialChangedFilesModalState,
 	initialCloseModalState,
+	initialCodexExplanationModalState,
 	initialCommandPaletteState,
 	initialCommentImplementationModalState,
 	initialCommentModalState,
@@ -180,6 +188,7 @@ import {
 	submitReviewOptions,
 	type ChangedFilesModalState,
 	type CloseModalState,
+	type CodexExplanationModalState,
 	type CommandPaletteState,
 	type CommentImplementationModalState,
 	type CommentModalState,
@@ -348,6 +357,7 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 	const openRepositoryModalActive = Modal.$is("OpenRepository")(activeModal)
 	const labelModal: LabelModalState = labelModalActive ? activeModal : initialLabelModalState
 	const closeModal: CloseModalState = closeModalActive ? activeModal : initialCloseModalState
+	const codexExplanationModal: CodexExplanationModalState = codexExplanationModalActive ? activeModal : initialCodexExplanationModalState
 	const commentImplementationModal: CommentImplementationModalState = commentImplementationModalActive ? activeModal : initialCommentImplementationModalState
 	const pullRequestStateModal: PullRequestStateModalState = pullRequestStateModalActive ? activeModal : initialPullRequestStateModalState
 	const mergeModal: MergeModalState = mergeModalActive ? activeModal : initialMergeModalState
@@ -411,6 +421,7 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 	const explainDiffSelection = useAtomSet(explainDiffSelectionAtom, { mode: "promise" })
 	const implementReviewComment = useAtomSet(implementReviewCommentAtom, { mode: "promise" })
 	const confirmReviewCommentImplementation = useAtomSet(confirmReviewCommentImplementationAtom, { mode: "promise" })
+	const copyToClipboard = useAtomSet(copyToClipboardAtom, { mode: "promise" })
 	const openUrl = useAtomSet(openUrlAtom, { mode: "promise" })
 	const terminalWidth = width ?? 100
 	const terminalHeight = height ?? 24
@@ -2163,11 +2174,31 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 			...current,
 			scrollOffset: Math.max(0, current.scrollOffset + delta),
 		}))
+	const copyCodexExplanation = () => {
+		const text = codexExplanationModal.body.trim()
+		if (text.length === 0) {
+			flashNotice("No Codex explanation to copy")
+			return
+		}
+		void copyToClipboard(text)
+			.then(() => flashNotice("Codex explanation copied"))
+			.catch((error) => flashNotice(errorMessage(error)))
+	}
 	const scrollCommentImplementation = (delta: number) =>
 		setCommentImplementationModal((current) => ({
 			...current,
 			scrollOffset: Math.max(0, current.scrollOffset + delta),
 		}))
+	const copyCommentImplementation = () => {
+		const text = commentImplementationModal.codexOutput.trim()
+		if (text.length === 0) {
+			flashNotice("No Codex response to copy")
+			return
+		}
+		void copyToClipboard(text)
+			.then(() => flashNotice("Codex response copied"))
+			.catch((error) => flashNotice(errorMessage(error)))
+	}
 	const moveLabelSelection = (delta: -1 | 1) =>
 		setLabelModal((current) => {
 			const filtered = filterLabels(labelModal.availableLabels, labelModal.query)
@@ -2327,8 +2358,8 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 				(themeModalActive && themeModal.filterMode),
 		},
 		closeModal: { closeActiveModal, confirmCloseModal },
-		codexExplanationModal: { halfPage, closeActiveModal, scrollCodexExplanation },
-		commentImplementationModal: { halfPage, closeActiveModal, confirmCommentImplementation, scrollCommentImplementation },
+		codexExplanationModal: { halfPage, closeActiveModal, copyCodexExplanation, scrollCodexExplanation },
+		commentImplementationModal: { halfPage, closeActiveModal, confirmCommentImplementation, copyCommentImplementation, scrollCommentImplementation },
 		pullRequestStateModal: { closeActiveModal, confirmPullRequestStateChange, movePullRequestStateSelection },
 		mergeModal: { mergeModal, cancelOrCloseMergeModal, confirmMergeAction, cycleMergeMethod, moveMergeSelection },
 		commentThreadModal: { halfPage, closeActiveModal, openDiffCommentModal, scrollCommentThread },

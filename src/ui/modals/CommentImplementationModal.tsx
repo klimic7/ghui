@@ -67,6 +67,7 @@ export const CommentImplementationModal = ({
 				<HintRow
 					items={[
 						{ key: "↑↓", label: "scroll", disabled: maxScroll === 0 },
+						{ key: "y", label: "copy codex", disabled: state.codexOutput.trim().length === 0 },
 						{ key: "enter", label: "commit+push", disabled: state.status !== "ready" || state.diff.trim().length === 0 },
 						{ key: "esc", label: state.status === "done" ? "close" : "cancel" },
 					]}
