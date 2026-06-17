@@ -90,6 +90,7 @@ export interface CommentImplementationModalState {
 	readonly subtitle: string
 	readonly codexOutput: string
 	readonly diff: string
+	readonly checkoutPath: string
 	readonly pushRemote: string
 	readonly commitMessage: string
 	readonly replyBody: string
@@ -218,6 +219,7 @@ export const initialCommentImplementationModalState: CommentImplementationModalS
 	subtitle: "",
 	codexOutput: "",
 	diff: "",
+	checkoutPath: "",
 	pushRemote: "",
 	commitMessage: "",
 	replyBody: "",

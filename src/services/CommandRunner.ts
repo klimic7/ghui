@@ -13,6 +13,7 @@ export interface RunOptions {
 	readonly stdin?: string
 	readonly timeoutMs?: number
 	readonly successExitCodes?: readonly number[]
+	readonly cwd?: string
 }
 
 export class CommandError extends Schema.TaggedErrorClass<CommandError>()("CommandError", {
@@ -76,7 +77,7 @@ export class CommandRunner extends Context.Service<
 	static readonly layer = Layer.effect(
 		CommandRunner,
 		Effect.gen(function* () {
-			const runProcessRaw = Effect.fn("CommandRunner.runProcessRaw")((command: string, args: readonly string[], stdin: string | undefined) =>
+			const runProcessRaw = Effect.fn("CommandRunner.runProcessRaw")((command: string, args: readonly string[], stdin: string | undefined, cwd: string | undefined) =>
 				Effect.tryPromise({
 					async try(signal) {
 						const proc = Bun.spawn({
@@ -84,6 +85,7 @@ export class CommandRunner extends Context.Service<
 							stdin: stdin === undefined ? "ignore" : "pipe",
 							stdout: "pipe",
 							stderr: "pipe",
+							...(cwd === undefined ? {} : { cwd }),
 						})
 						const kill = () => proc.kill("SIGKILL")
 						signal.addEventListener("abort", kill, { once: true })
@@ -111,8 +113,8 @@ export class CommandRunner extends Context.Service<
 						}),
 				}),
 			)
-			const runProcess = Effect.fn("CommandRunner.runProcess")((command: string, args: readonly string[], stdin: string | undefined, timeoutMs: number) =>
-				runProcessRaw(command, args, stdin).pipe(
+			const runProcess = Effect.fn("CommandRunner.runProcess")((command: string, args: readonly string[], stdin: string | undefined, cwd: string | undefined, timeoutMs: number) =>
+				runProcessRaw(command, args, stdin, cwd).pipe(
 					Effect.timeoutOrElse({
 						duration: `${timeoutMs} millis`,
 						orElse: () =>
@@ -132,7 +134,7 @@ export class CommandRunner extends Context.Service<
 				const startedAt = Date.now()
 				const attributes = commandTelemetryAttributes(command, args)
 				const timeoutMs = options?.timeoutMs ?? config.commandTimeoutMs
-				const result = yield* runProcess(command, args, options?.stdin, timeoutMs).pipe(
+				const result = yield* runProcess(command, args, options?.stdin, options?.cwd, timeoutMs).pipe(
 					Effect.tap((result) =>
 						Effect.annotateCurrentSpan({
 							...attributes,

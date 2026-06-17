@@ -10,17 +10,20 @@ interface RecordedCall {
 	readonly options?: RunOptions
 }
 
-const fakeCommandRunner = (recorder: RecordedCall[], remoteOutput = "origin\tgit@github.com:owner/repo.git (fetch)\n") =>
+const fakeCommandRunner = (recorder: RecordedCall[]) =>
 	Layer.succeed(
 		CommandRunner,
 		CommandRunner.of({
 			run: (command, args, options) => {
 				recorder.push({ command, args: [...args], ...(options ? { options } : {}) })
 				const stdout = (() => {
-					if (command === "git" && args.join(" ") === "remote -v") return remoteOutput
+					if (command === "git" && args.join(" ") === "rev-parse --show-toplevel") return "/workspace/repo\n"
+					if (command === "git" && args.join(" ") === "-C /workspace/repo rev-parse --show-toplevel") return "/workspace/repo\n"
+					if (command === "find") return "/workspace/repo/.git\n"
 					if (command === "git" && args.join(" ") === "branch --show-current") return "feature/review\n"
 					if (command === "git" && args.join(" ") === "status --porcelain") return ""
 					if (command === "git" && args.join(" ") === "rev-parse --abbrev-ref --symbolic-full-name @{u}") return "origin/feature/review\n"
+					if (command === "git" && args.join(" ") === "remote -v") return "origin\tgit@github.com:owner/repo.git (fetch)\norigin\tgit@github.com:owner/repo.git (push)\n"
 					if (command === "git" && args.join(" ") === "remote") return "origin\nupstream\n"
 					if (command === "git" && args.join(" ") === "ls-remote --heads origin feature/review") return "abc123\trefs/heads/feature/review\n"
 					if (command === "git" && args[0] === "ls-remote") return ""
@@ -39,9 +42,9 @@ const fakeCommandRunner = (recorder: RecordedCall[], remoteOutput = "origin\tgit
 		}),
 	)
 
-const runWith = <A>(effect: Effect.Effect<A, unknown, CodexCommentImplementer>, recorder: RecordedCall[], remoteOutput?: string) => {
+const runWith = <A>(effect: Effect.Effect<A, unknown, CodexCommentImplementer>, recorder: RecordedCall[]) => {
 	const githubLayer = MockGitHubService.layer({ prCount: 1, repository: "owner/repo", repositories: ["owner/repo"], username: "kit" })
-	const layer = CodexCommentImplementer.layerNoDeps.pipe(Layer.provide(githubLayer), Layer.provide(fakeCommandRunner(recorder, remoteOutput)))
+	const layer = CodexCommentImplementer.layerNoDeps.pipe(Layer.provide(githubLayer), Layer.provide(fakeCommandRunner(recorder)))
 	return Effect.runPromise(effect.pipe(Effect.provide(layer)) as Effect.Effect<A>)
 }
 
@@ -69,17 +72,18 @@ describe("CodexCommentImplementer", () => {
 		expect(result.diff).toContain("diff --git a/src/existing.ts b/src/existing.ts")
 		expect(result.diff).toContain("diff --git a/src/new.ts b/src/new.ts")
 		expect(result.diff).toContain("new file mode 100644")
+		expect(result.checkoutPath).toBe("/workspace/repo")
 		expect(result.pushRemote).toBe("origin")
 		const untrackedDiffCall = recorder.find((call) => call.command === "git" && call.args.includes("--no-index"))
 		expect(untrackedDiffCall?.options?.successExitCodes).toEqual([0, 1])
 	})
 
-	test("accepts a fork remote with the same repository name", async () => {
+	test("does not reject remotes with a different repository name", async () => {
 		const recorder: RecordedCall[] = []
 		const result = await runWith(
 			CodexCommentImplementer.use((codex) =>
 				codex.implementReviewComment({
-					repository: "upstream/repo",
+					repository: "upstream/project",
 					number: 42,
 					title: "Review fixes",
 					headRefName: "feature/review",
@@ -92,10 +96,10 @@ describe("CodexCommentImplementer", () => {
 				}),
 			),
 			recorder,
-			"origin\tgit@github.com:fork-owner/repo.git (fetch)\n",
 		)
 
 		expect(result.codexOutput).toContain("Upravil")
+		expect(result.checkoutPath).toBe("/workspace/repo")
 		expect(result.pushRemote).toBe("origin")
 		expect(recorder.some((call) => call.command === "codex")).toBe(true)
 	})
@@ -133,6 +137,7 @@ describe("CodexCommentImplementer", () => {
 					path: "src/existing.ts",
 					line: 1,
 					body: "Please extract this.",
+					checkoutPath: result.checkoutPath,
 					pushRemote: result.pushRemote,
 					commitMessage: result.commitMessage,
 					replyBody: result.replyBody,
@@ -143,5 +148,6 @@ describe("CodexCommentImplementer", () => {
 		)
 
 		expect(recorder.some((call) => call.command === "git" && call.args.join(" ") === "push origin HEAD:refs/heads/feature/review")).toBe(true)
+		expect(recorder.filter((call) => call.command === "codex").every((call) => call.options?.cwd === "/workspace/repo")).toBe(true)
 	})
 })

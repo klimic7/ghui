@@ -42,6 +42,7 @@ export const CommentImplementationModal = ({
 				: [
 						state.codexOutput ? `Codex:\n${state.codexOutput}` : "",
 						state.diff ? `Diff:\n${state.diff}` : "Diff:\n(no changes)",
+						state.checkoutPath ? `Checkout:\n${state.checkoutPath}` : "",
 						state.commitMessage ? `Commit:\n${state.commitMessage}` : "",
 						state.pushRemote ? `Push:\n${state.pushRemote}` : "",
 						state.replyBody ? `Reply:\n${state.replyBody}` : "",
