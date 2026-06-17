@@ -18,18 +18,34 @@ export interface ImplementReviewCommentInput {
 export interface ImplementReviewCommentResult {
 	readonly codexOutput: string
 	readonly diff: string
+	readonly pushRemote: string
 	readonly commitMessage: string
 	readonly replyBody: string
 }
 
 export interface ConfirmReviewCommentImplementationInput extends ImplementReviewCommentInput {
+	readonly pushRemote: string
 	readonly commitMessage: string
 	readonly replyBody: string
 	readonly expectedDiff: string
 }
 
 const repositoryRemotePattern = (repository: string) => new RegExp(`github\\.com[:/]${repository.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?:\\.git)?`, "i")
+const repositoryName = (repository: string) => repository.split("/")[1]?.toLowerCase() ?? repository.toLowerCase()
+const remoteRepositoryNames = (remotes: string): readonly string[] =>
+	Array.from(remotes.matchAll(/github\.com[:/]([^/\s:]+)\/([^/\s]+?)(?:\.git)?(?:\s|$)/gi), (match) => match[2]?.toLowerCase()).filter((name): name is string => Boolean(name))
+const checkoutMatchesRepository = (remotes: string, repository: string) =>
+	repositoryRemotePattern(repository).test(remotes) || remoteRepositoryNames(remotes).includes(repositoryName(repository))
 const splitNullSeparated = (value: string): readonly string[] => value.split("\0").filter((entry) => entry.length > 0)
+const splitLines = (value: string): readonly string[] =>
+	value
+		.split(/\r?\n/)
+		.map((line) => line.trim())
+		.filter((line) => line.length > 0)
+const branchRemote = (upstream: string, headRefName: string): string | null => {
+	if (!upstream.endsWith(`/${headRefName}`)) return null
+	return upstream.slice(0, -headRefName.length - 1) || null
+}
 
 const buildPrompt = (input: ImplementReviewCommentInput) => `Jsi Codex uvnitř lokálního checkoutu GitHub PR.
 
@@ -77,13 +93,37 @@ export class CodexCommentImplementer extends Context.Service<
 				return [tracked.stdout, ...untrackedDiffs].filter((part) => part.length > 0).join(tracked.stdout.length > 0 && untrackedDiffs.length > 0 ? "\n" : "")
 			})
 
+			const remoteHasBranch = Effect.fn("CodexCommentImplementer.remoteHasBranch")(function* (remote: string, headRefName: string) {
+				const result = yield* command.run("git", ["ls-remote", "--heads", remote, headRefName])
+				return result.stdout.trim().length > 0
+			})
+
+			const findPushRemote = Effect.fn("CodexCommentImplementer.findPushRemote")(function* (input: ImplementReviewCommentInput) {
+				const upstream = yield* command.run("git", ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"], { successExitCodes: [0, 128] })
+				const upstreamRemote = upstream.exitCode === 0 ? branchRemote(upstream.stdout.trim(), input.headRefName) : null
+				if (upstreamRemote && (yield* remoteHasBranch(upstreamRemote, input.headRefName))) return upstreamRemote
+
+				const remotes = yield* command.run("git", ["remote"])
+				for (const remote of splitLines(remotes.stdout)) {
+					if (remote === upstreamRemote) continue
+					if (yield* remoteHasBranch(remote, input.headRefName)) return remote
+				}
+
+				return yield* new CommandError({
+					command: "git",
+					args: ["ls-remote", "--heads", "<remote>", input.headRefName],
+					detail: `Could not find a git remote containing PR head branch ${input.headRefName}. Add/fetch the PR head remote before implementing comments.`,
+					cause: remotes.stdout,
+				})
+			})
+
 			const ensureLocalCheckout = Effect.fn("CodexCommentImplementer.ensureLocalCheckout")(function* (input: ImplementReviewCommentInput) {
 				const remotes = yield* command.run("git", ["remote", "-v"])
-				if (!repositoryRemotePattern(input.repository).test(remotes.stdout)) {
+				if (!checkoutMatchesRepository(remotes.stdout, input.repository)) {
 					return yield* new CommandError({
 						command: "git",
 						args: ["remote", "-v"],
-						detail: `Current checkout does not look like ${input.repository}. Open ghui from that repository before implementing comments.`,
+						detail: `Current checkout does not look like ${input.repository}. Open ghui from that repository or from a fork with the same repository name before implementing comments.`,
 						cause: remotes.stdout,
 					})
 				}
@@ -105,10 +145,11 @@ export class CodexCommentImplementer extends Context.Service<
 						cause: status.stdout,
 					})
 				}
+				return yield* findPushRemote(input)
 			})
 
 			const implementReviewComment = Effect.fn("CodexCommentImplementer.implementReviewComment")(function* (input: ImplementReviewCommentInput) {
-				yield* ensureLocalCheckout(input)
+				const pushRemote = yield* ensureLocalCheckout(input)
 				const codex = yield* command.run("codex", ["exec", "--skip-git-repo-check", "--sandbox", "workspace-write", "--ephemeral", "--color", "never", "-"], {
 					stdin: buildPrompt(input),
 					timeoutMs: 180_000,
@@ -119,7 +160,7 @@ export class CodexCommentImplementer extends Context.Service<
 					diff.trim().length > 0
 						? `Vyřešeno v navazujícím commitu: upravil jsem kód podle komentáře v \`${input.path}:${input.line}\`.`
 						: `Prověřeno: Codex neprovedl žádnou změnu. ${codex.stdout.trim()}`.slice(0, 1000)
-				return { codexOutput: codex.stdout.trim(), diff, commitMessage, replyBody }
+				return { codexOutput: codex.stdout.trim(), diff, pushRemote, commitMessage, replyBody }
 			})
 
 			const confirmReviewCommentImplementation = Effect.fn("CodexCommentImplementer.confirmReviewCommentImplementation")(function* (
@@ -136,7 +177,7 @@ export class CodexCommentImplementer extends Context.Service<
 				}
 				yield* command.run("git", ["add", "-A"])
 				yield* command.run("git", ["commit", "-m", input.commitMessage])
-				yield* command.run("git", ["push"])
+				yield* command.run("git", ["push", input.pushRemote, `HEAD:refs/heads/${input.headRefName}`])
 				yield* github.replyToReviewComment(input.repository, input.number, input.commentId, input.replyBody)
 				yield* github.resolveReviewThread(input.threadId)
 			})

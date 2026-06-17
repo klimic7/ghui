@@ -1345,6 +1345,7 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 			subtitle: `${input.path}:${input.line}`,
 			codexOutput: "",
 			diff: "",
+			pushRemote: "",
 			commitMessage: "",
 			replyBody: "",
 			error: null,
@@ -1359,6 +1360,7 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 								status: "ready",
 								codexOutput: result.codexOutput,
 								diff: result.diff,
+								pushRemote: result.pushRemote,
 								commitMessage: result.commitMessage,
 								replyBody: result.replyBody,
 								error: null,
@@ -1375,6 +1377,7 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 								status: "error",
 								codexOutput: "",
 								diff: "",
+								pushRemote: "",
 								commitMessage: "",
 								replyBody: "",
 								error: errorMessage(error),
@@ -1389,6 +1392,7 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 		if (!commentImplementationModal.input || commentImplementationModal.status !== "ready" || commentImplementationModal.diff.trim().length === 0) return
 		const input = {
 			...commentImplementationModal.input,
+			pushRemote: commentImplementationModal.pushRemote,
 			commitMessage: commentImplementationModal.commitMessage,
 			replyBody: commentImplementationModal.replyBody,
 			expectedDiff: commentImplementationModal.diff,
