@@ -1311,6 +1311,10 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 		if (!comment) return null
 		if (comment._tag !== "review-comment") return null
 		if (!comment.threadId) return null
+		if (selectedDiffState?._tag !== "Ready") {
+			flashNotice("Load the PR diff before asking Codex to implement a comment")
+			return null
+		}
 		return {
 			repository: selectedPullRequest.repository,
 			number: selectedPullRequest.number,
@@ -1322,6 +1326,7 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 			path: comment.path,
 			line: comment.line,
 			body: comment.body,
+			files: selectedDiffState.files.map((file) => ({ path: file.name, patch: file.patch })),
 		}
 	}
 

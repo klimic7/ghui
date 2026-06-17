@@ -13,6 +13,10 @@ export interface ImplementReviewCommentInput {
 	readonly path: string
 	readonly line: number
 	readonly body: string
+	readonly files: readonly {
+		readonly path: string
+		readonly patch: string
+	}[]
 }
 
 export interface ImplementReviewCommentResult {
@@ -63,7 +67,8 @@ const buildPrompt = (input: ImplementReviewCommentInput) => `Jsi Codex uvnitř l
 
 Úkol:
 - Posuď vybraný review komentář.
-- Pokud je komentář actionable, uprav kód tak, aby byl problém vyřešen.
+- Review komentář neřeš izolovaně. Použij celý PR diff níže jako kontext a vyřeš celý problém, který komentář naznačuje.
+- Pokud je komentář actionable, uprav kód tak, aby byl problém vyřešen konzistentně v celém relevantním rozsahu změn.
 - Pokud změna nedává smysl nebo není bezpečná, neupravuj soubory a stručně vysvětli proč.
 - Odpověz česky.
 
@@ -79,6 +84,14 @@ Review comment:
 
 Komentář:
 ${input.body}
+
+Změněné soubory v PR:
+${input.files.map((file) => `- ${file.path}`).join("\n")}
+
+Celý PR diff pro kontext:
+\`\`\`diff
+${input.files.map((file) => file.patch).join("\n")}
+\`\`\`
 `
 
 export class CodexCommentImplementer extends Context.Service<

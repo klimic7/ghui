@@ -2,4 +2,4 @@
 "@kitlangton/ghui": patch
 ---
 
-Add a comments-view Codex implementation flow for review comments, including a modal diff preview, commit/push confirmation, comment reply, review-thread resolution, local checkout discovery for PR branches, and cancellable implementation modals.
+Add a comments-view Codex implementation flow for review comments, including a modal diff preview, commit/push confirmation, comment reply, review-thread resolution, local checkout discovery for PR branches, cancellable implementation modals, and full PR diff context for Codex.

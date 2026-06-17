@@ -48,24 +48,34 @@ const runWith = <A>(effect: Effect.Effect<A, unknown, CodexCommentImplementer>, 
 	return Effect.runPromise(effect.pipe(Effect.provide(layer)) as Effect.Effect<A>)
 }
 
+const reviewCommentInput = (repository = "owner/repo") => ({
+	repository,
+	number: 42,
+	title: "Review fixes",
+	headRefName: "feature/review",
+	commentId: "100",
+	threadId: "PRRT_100",
+	author: "reviewer",
+	path: "src/existing.ts",
+	line: 1,
+	body: "Please extract this.",
+	files: [
+		{
+			path: "src/existing.ts",
+			patch: "diff --git a/src/existing.ts b/src/existing.ts\n@@ -1 +1 @@\n-before\n+after\n",
+		},
+		{
+			path: "src/related.ts",
+			patch: "diff --git a/src/related.ts b/src/related.ts\n@@ -1 +1 @@\n-old related\n+new related\n",
+		},
+	],
+})
+
 describe("CodexCommentImplementer", () => {
 	test("includes untracked files in the reviewed diff", async () => {
 		const recorder: RecordedCall[] = []
 		const result = await runWith(
-			CodexCommentImplementer.use((codex) =>
-				codex.implementReviewComment({
-					repository: "owner/repo",
-					number: 42,
-					title: "Review fixes",
-					headRefName: "feature/review",
-					commentId: "100",
-					threadId: "PRRT_100",
-					author: "reviewer",
-					path: "src/existing.ts",
-					line: 1,
-					body: "Please extract this.",
-				}),
-			),
+			CodexCommentImplementer.use((codex) => codex.implementReviewComment(reviewCommentInput())),
 			recorder,
 		)
 
@@ -76,25 +86,15 @@ describe("CodexCommentImplementer", () => {
 		expect(result.pushRemote).toBe("origin")
 		const untrackedDiffCall = recorder.find((call) => call.command === "git" && call.args.includes("--no-index"))
 		expect(untrackedDiffCall?.options?.successExitCodes).toEqual([0, 1])
+		const codexCall = recorder.find((call) => call.command === "codex")
+		expect(codexCall?.options?.stdin).toContain("Celý PR diff pro kontext")
+		expect(codexCall?.options?.stdin).toContain("diff --git a/src/related.ts b/src/related.ts")
 	})
 
 	test("does not reject remotes with a different repository name", async () => {
 		const recorder: RecordedCall[] = []
 		const result = await runWith(
-			CodexCommentImplementer.use((codex) =>
-				codex.implementReviewComment({
-					repository: "upstream/project",
-					number: 42,
-					title: "Review fixes",
-					headRefName: "feature/review",
-					commentId: "100",
-					threadId: "PRRT_100",
-					author: "reviewer",
-					path: "src/existing.ts",
-					line: 1,
-					body: "Please extract this.",
-				}),
-			),
+			CodexCommentImplementer.use((codex) => codex.implementReviewComment(reviewCommentInput("upstream/project"))),
 			recorder,
 		)
 
@@ -107,36 +107,14 @@ describe("CodexCommentImplementer", () => {
 	test("pushes explicitly to the resolved PR head remote and branch", async () => {
 		const recorder: RecordedCall[] = []
 		const result = await runWith(
-			CodexCommentImplementer.use((codex) =>
-				codex.implementReviewComment({
-					repository: "owner/repo",
-					number: 42,
-					title: "Review fixes",
-					headRefName: "feature/review",
-					commentId: "100",
-					threadId: "PRRT_100",
-					author: "reviewer",
-					path: "src/existing.ts",
-					line: 1,
-					body: "Please extract this.",
-				}),
-			),
+			CodexCommentImplementer.use((codex) => codex.implementReviewComment(reviewCommentInput())),
 			recorder,
 		)
 
 		await runWith(
 			CodexCommentImplementer.use((codex) =>
 				codex.confirmReviewCommentImplementation({
-					repository: "owner/repo",
-					number: 42,
-					title: "Review fixes",
-					headRefName: "feature/review",
-					commentId: "100",
-					threadId: "PRRT_100",
-					author: "reviewer",
-					path: "src/existing.ts",
-					line: 1,
-					body: "Please extract this.",
+					...reviewCommentInput(),
 					checkoutPath: result.checkoutPath,
 					pushRemote: result.pushRemote,
 					commitMessage: result.commitMessage,
