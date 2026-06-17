@@ -92,7 +92,7 @@ import { useLoadMore } from "./ui/pullRequests/useLoadMore.js"
 import { useFilterModal } from "./ui/filter/useFilterModal.js"
 import { useRefreshCompletionToast } from "./ui/pullRequests/useRefreshCompletionToast.js"
 import { useRepositoryDetails } from "./ui/pullRequests/useRepositoryDetails.js"
-import { openUrlAtom, submitPullRequestReviewAtom } from "./services/systemAtoms.js"
+import { confirmReviewCommentImplementationAtom, explainDiffSelectionAtom, implementReviewCommentAtom, openUrlAtom, submitPullRequestReviewAtom } from "./services/systemAtoms.js"
 import {
 	diffCommentAnchorIndexAtom,
 	diffCommentRangeStartIndexAtom,
@@ -165,6 +165,7 @@ import {
 	initialChangedFilesModalState,
 	initialCloseModalState,
 	initialCommandPaletteState,
+	initialCommentImplementationModalState,
 	initialCommentModalState,
 	initialDeleteCommentModalState,
 	initialFilterModalState,
@@ -180,6 +181,7 @@ import {
 	type ChangedFilesModalState,
 	type CloseModalState,
 	type CommandPaletteState,
+	type CommentImplementationModalState,
 	type CommentModalState,
 	type DeleteCommentModalState,
 	type FilterModalState,
@@ -326,6 +328,8 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 	const closeActiveModal = () => setActiveModal(initialModal)
 	const labelModalActive = Modal.$is("Label")(activeModal)
 	const closeModalActive = Modal.$is("Close")(activeModal)
+	const codexExplanationModalActive = Modal.$is("CodexExplanation")(activeModal)
+	const commentImplementationModalActive = Modal.$is("CommentImplementation")(activeModal)
 	const pullRequestStateModalActive = Modal.$is("PullRequestState")(activeModal)
 	const mergeModalActive = Modal.$is("Merge")(activeModal)
 	const commentModalActive = Modal.$is("Comment")(activeModal)
@@ -339,6 +343,7 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 	const openRepositoryModalActive = Modal.$is("OpenRepository")(activeModal)
 	const labelModal: LabelModalState = labelModalActive ? activeModal : initialLabelModalState
 	const closeModal: CloseModalState = closeModalActive ? activeModal : initialCloseModalState
+	const commentImplementationModal: CommentImplementationModalState = commentImplementationModalActive ? activeModal : initialCommentImplementationModalState
 	const pullRequestStateModal: PullRequestStateModalState = pullRequestStateModalActive ? activeModal : initialPullRequestStateModalState
 	const mergeModal: MergeModalState = mergeModalActive ? activeModal : initialMergeModalState
 	const commentModal: CommentModalState = commentModalActive ? activeModal : initialCommentModalState
@@ -362,6 +367,8 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 				return ctor(next)
 			})
 	const setLabelModal = makeModalSetter("Label")
+	const setCodexExplanationModal = makeModalSetter("CodexExplanation")
+	const setCommentImplementationModal = makeModalSetter("CommentImplementation")
 	const setPullRequestStateModal = makeModalSetter("PullRequestState")
 	const setMergeModal = makeModalSetter("Merge")
 	const setCommentModal = makeModalSetter("Comment")
@@ -396,6 +403,9 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 	const closeIssue = useAtomSet(closeIssueAtom, { mode: "promise" })
 	const refreshIssuesAtomRaw = useAtomRefresh(issuesAtom)
 	const submitPullRequestReview = useAtomSet(submitPullRequestReviewAtom, { mode: "promise" })
+	const explainDiffSelection = useAtomSet(explainDiffSelectionAtom, { mode: "promise" })
+	const implementReviewComment = useAtomSet(implementReviewCommentAtom, { mode: "promise" })
+	const confirmReviewCommentImplementation = useAtomSet(confirmReviewCommentImplementationAtom, { mode: "promise" })
 	const openUrl = useAtomSet(openUrlAtom, { mode: "promise" })
 	const terminalWidth = width ?? 100
 	const terminalHeight = height ?? 24
@@ -1225,7 +1235,7 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 		setDiffCommentAnchorIndex(0)
 		setDiffPreferredSide(null)
 		setDiffCommentRangeStartIndex(null)
-		setDiffRenderView(contentWidth >= 100 ? "split" : "unified")
+		setDiffRenderView("unified")
 		diffScrollRef.current?.scrollTo({ x: 0, y: 0 })
 		loadPullRequestDiff(selectedPullRequest, { includeComments: true })
 	}
@@ -1288,6 +1298,113 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 		} else if (selectedPullRequest) {
 			loadPullRequestComments(selectedPullRequest, true)
 		}
+	}
+
+	const selectedReviewCommentImplementationInput = () => {
+		if (!selectedPullRequest) return null
+		const comment = selectedOrderedComment
+		if (!comment) return null
+		if (comment._tag !== "review-comment") return null
+		if (!comment.threadId) return null
+		return {
+			repository: selectedPullRequest.repository,
+			number: selectedPullRequest.number,
+			title: selectedPullRequest.title,
+			headRefName: selectedPullRequest.headRefName,
+			commentId: comment.id,
+			threadId: comment.threadId,
+			author: comment.author,
+			path: comment.path,
+			line: comment.line,
+			body: comment.body,
+		}
+	}
+
+	const implementSelectedComment = () => {
+		if (!selectedPullRequest) return
+		const comment = selectedOrderedComment
+		if (!comment) {
+			flashNotice("Select a review comment first")
+			return
+		}
+		if (comment._tag !== "review-comment") {
+			flashNotice("Codex implementation is available for review comments")
+			return
+		}
+		if (!comment.threadId) {
+			flashNotice("This review thread cannot be resolved yet; refresh comments")
+			return
+		}
+		const input = selectedReviewCommentImplementationInput()
+		if (!input) return
+		const requestKey = [selectedPullRequest.url, input.threadId, input.commentId].join(":")
+		setCommentImplementationModal({
+			requestKey,
+			input,
+			status: "running",
+			subtitle: `${input.path}:${input.line}`,
+			codexOutput: "",
+			diff: "",
+			commitMessage: "",
+			replyBody: "",
+			error: null,
+			scrollOffset: 0,
+		})
+		void implementReviewComment(input)
+			.then((result) => {
+				setCommentImplementationModal((current) =>
+					current.requestKey === requestKey
+						? {
+								...current,
+								status: "ready",
+								codexOutput: result.codexOutput,
+								diff: result.diff,
+								commitMessage: result.commitMessage,
+								replyBody: result.replyBody,
+								error: null,
+								scrollOffset: 0,
+							}
+						: current,
+				)
+			})
+			.catch((error) => {
+				setCommentImplementationModal((current) =>
+					current.requestKey === requestKey
+						? {
+								...current,
+								status: "error",
+								codexOutput: "",
+								diff: "",
+								commitMessage: "",
+								replyBody: "",
+								error: errorMessage(error),
+								scrollOffset: 0,
+							}
+						: current,
+				)
+			})
+	}
+
+	const confirmCommentImplementation = () => {
+		if (!commentImplementationModal.input || commentImplementationModal.status !== "ready" || commentImplementationModal.diff.trim().length === 0) return
+		const input = {
+			...commentImplementationModal.input,
+			commitMessage: commentImplementationModal.commitMessage,
+			replyBody: commentImplementationModal.replyBody,
+			expectedDiff: commentImplementationModal.diff,
+		}
+		const requestKey = commentImplementationModal.requestKey
+		setCommentImplementationModal((current) => (current.requestKey === requestKey ? { ...current, status: "confirming", error: null } : current))
+		void confirmReviewCommentImplementation(input)
+			.then(() => {
+				setCommentImplementationModal((current) => (current.requestKey === requestKey ? { ...current, status: "done", error: null } : current))
+				refreshSelectedComments()
+				flashNotice("Implemented comment, pushed, replied, and resolved thread")
+			})
+			.catch((error) => {
+				setCommentImplementationModal((current) => (current.requestKey === requestKey ? { ...current, status: "error", error: errorMessage(error) } : current))
+				flashNotice(errorMessage(error))
+			})
 	}
 
 	const scrollToDiffFile = (index: number) => {
@@ -1470,6 +1587,112 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 	const toggleDiffCommentRange = () => {
 		if (!selectedDiffCommentAnchor) return
 		setDiffCommentRangeStartIndex((current) => (current === null ? selectedDiffCommentAnchorIndex : null))
+	}
+
+	const explainSelectedDiffRange = () => {
+		if (!selectedPullRequest) return
+
+		const explanation =
+			selectedDiffCommentRange && selectedDiffCommentRangeAnchors.length > 0
+				? (() => {
+						const startLine = Math.min(selectedDiffCommentRange.start.line, selectedDiffCommentRange.end.line)
+						const endLine = Math.max(selectedDiffCommentRange.start.line, selectedDiffCommentRange.end.line)
+						const path = selectedDiffCommentRange.end.path
+						const side = selectedDiffCommentRange.end.side
+						return {
+							requestKey: [
+								selectedPullRequest.url,
+								"range",
+								path,
+								side,
+								startLine,
+								endLine,
+								selectedDiffCommentRangeAnchors.map((anchor) => `${anchor.side}:${anchor.line}:${anchor.kind}:${anchor.text}`).join("|"),
+							].join(":"),
+							subject: "range" as const,
+							title: "Explain diff range",
+							subtitle: `${path} ${side === "RIGHT" ? "+" : "-"}${startLine}${startLine === endLine ? "" : `-${endLine}`}`,
+							input: {
+								kind: "range" as const,
+								repository: selectedPullRequest.repository,
+								number: selectedPullRequest.number,
+								title: selectedPullRequest.title,
+								url: selectedPullRequest.url,
+								baseRefName: selectedPullRequest.baseRefName,
+								headRefName: selectedPullRequest.headRefName,
+								path,
+								side,
+								startLine,
+								endLine,
+								lines: selectedDiffCommentRangeAnchors.map((anchor) => ({
+									side: anchor.side,
+									kind: anchor.kind,
+									line: anchor.line,
+									text: anchor.text,
+								})),
+							},
+						}
+					})()
+				: (() => {
+						if (readyDiffFiles.length === 0) return null
+						return {
+							requestKey: [selectedPullRequest.url, "whole", selectedPullRequest.headRefOid, diffWhitespaceMode, readyDiffFiles.length].join(":"),
+							subject: "whole" as const,
+							title: "Explain whole diff",
+							subtitle: `${readyDiffFiles.length} ${readyDiffFiles.length === 1 ? "file" : "files"}`,
+							input: {
+								kind: "whole" as const,
+								repository: selectedPullRequest.repository,
+								number: selectedPullRequest.number,
+								title: selectedPullRequest.title,
+								url: selectedPullRequest.url,
+								baseRefName: selectedPullRequest.baseRefName,
+								headRefName: selectedPullRequest.headRefName,
+								files: readyDiffFiles.map((file) => ({
+									path: file.name,
+									patch: file.patch,
+								})),
+							},
+						}
+					})()
+
+		if (!explanation) {
+			flashNotice("No diff to explain")
+			return
+		}
+
+		setCodexExplanationModal({
+			requestKey: explanation.requestKey,
+			subject: explanation.subject,
+			title: explanation.title,
+			subtitle: explanation.subtitle,
+			status: "loading",
+			body: "",
+			scrollOffset: 0,
+		})
+		void explainDiffSelection(explanation.input)
+			.then((body) => {
+				setCodexExplanationModal((current) =>
+					current.requestKey === explanation.requestKey
+						? {
+								...current,
+								status: "ready",
+								body,
+							}
+						: current,
+				)
+			})
+			.catch((error) => {
+				setCodexExplanationModal((current) =>
+					current.requestKey === explanation.requestKey
+						? {
+								...current,
+								status: "error",
+								body: errorMessage(error),
+							}
+						: current,
+				)
+			})
 	}
 
 	const moveDiffCommentThread = (delta: 1 | -1) => {
@@ -1809,10 +2032,12 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 	useEffect(() => registerHandoff("moveDiffCommentThreadPrevious", () => moveDiffCommentThread(-1)), [moveDiffCommentThread])
 	useEffect(() => registerHandoff("openSelectedDiffComment", openSelectedDiffComment), [openSelectedDiffComment])
 	useEffect(() => registerHandoff("toggleDiffCommentRange", toggleDiffCommentRange), [toggleDiffCommentRange])
+	useEffect(() => registerHandoff("explainSelectedDiffRange", explainSelectedDiffRange), [explainSelectedDiffRange])
 	useEffect(() => registerHandoff("openDiffCommentModal", openDiffCommentModal), [openDiffCommentModal])
 	useEffect(() => registerHandoff("openReplyToSelectedComment", openReplyToSelectedComment), [openReplyToSelectedComment])
 	useEffect(() => registerHandoff("openEditSelectedComment", openEditSelectedComment), [openEditSelectedComment])
 	useEffect(() => registerHandoff("openDeleteSelectedComment", openDeleteSelectedComment), [openDeleteSelectedComment])
+	useEffect(() => registerHandoff("implementSelectedComment", implementSelectedComment), [implementSelectedComment])
 	useEffect(
 		() => registerHandoff("viewRepository", () => selectedRepository !== null && switchViewTo({ _tag: "Repository", repository: selectedRepository })),
 		[selectedRepository, switchViewTo],
@@ -1900,6 +2125,16 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 	// === Helpers used by the keymap layers ===
 	const scrollCommentThread = (delta: number) =>
 		setCommentThreadModal((current) => ({
+			...current,
+			scrollOffset: Math.max(0, current.scrollOffset + delta),
+		}))
+	const scrollCodexExplanation = (delta: number) =>
+		setCodexExplanationModal((current) => ({
+			...current,
+			scrollOffset: Math.max(0, current.scrollOffset + delta),
+		}))
+	const scrollCommentImplementation = (delta: number) =>
+		setCommentImplementationModal((current) => ({
 			...current,
 			scrollOffset: Math.max(0, current.scrollOffset + delta),
 		}))
@@ -2033,6 +2268,8 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 	const appCtx: AppCtx = buildAppCtx({
 		flags: {
 			closeModalActive,
+			codexExplanationModalActive,
+			commentImplementationModalActive,
 			pullRequestStateModalActive,
 			mergeModalActive,
 			commentThreadModalActive,
@@ -2060,6 +2297,8 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 				(themeModalActive && themeModal.filterMode),
 		},
 		closeModal: { closeActiveModal, confirmCloseModal },
+		codexExplanationModal: { halfPage, closeActiveModal, scrollCodexExplanation },
+		commentImplementationModal: { halfPage, closeActiveModal, confirmCommentImplementation, scrollCommentImplementation },
 		pullRequestStateModal: { closeActiveModal, confirmPullRequestStateChange, movePullRequestStateSelection },
 		mergeModal: { mergeModal, cancelOrCloseMergeModal, confirmMergeAction, cycleMergeMethod, moveMergeSelection },
 		commentThreadModal: { halfPage, closeActiveModal, openDiffCommentModal, scrollCommentThread },
@@ -2321,6 +2560,8 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 		return { width, height, left: centeredOffset(contentWidth, width), top: centeredOffset(terminalHeight, height) }
 	})()
 	const closeLayout = sizedModal(46, 68, 12, 12)
+	const codexExplanationLayout = sizedModal(58, 92, 8, 24)
+	const commentImplementationLayout = sizedModal(62, 100, 6, 28)
 	const deleteCommentLayout = sizedModal(46, 68, 12, 12)
 	const pullRequestStateLayout = sizedModal(46, 68, 12, 9)
 	const commentLayout = sizedModal(46, 76, 8, 16)
@@ -2783,6 +3024,8 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 				layouts={{
 					Label: labelLayout,
 					Close: closeLayout,
+					CodexExplanation: codexExplanationLayout,
+					CommentImplementation: commentImplementationLayout,
 					PullRequestState: pullRequestStateLayout,
 					Comment: commentLayout,
 					DeleteComment: deleteCommentLayout,

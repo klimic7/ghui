@@ -5,6 +5,8 @@ import {
 	ChangedFilesModal,
 	type ChangedFileSearchResult,
 	CloseModal,
+	CodexExplanationModal,
+	CommentImplementationModal,
 	CommentModal,
 	CommentThreadModal,
 	DeleteCommentModal,
@@ -58,6 +60,10 @@ export const WorkspaceModals = (props: WorkspaceModalsProps) =>
 		None: () => null,
 		Label: (state) => <LabelModal state={state} currentLabels={props.selectedItemLabels} loadingIndicator={props.loadingIndicator} {...layoutToProps(props.layouts.Label)} />,
 		Close: (state) => <CloseModal state={state} loadingIndicator={props.loadingIndicator} {...layoutToProps(props.layouts.Close)} />,
+		CodexExplanation: (state) => <CodexExplanationModal state={state} loadingIndicator={props.loadingIndicator} {...layoutToProps(props.layouts.CodexExplanation)} />,
+		CommentImplementation: (state) => (
+			<CommentImplementationModal state={state} loadingIndicator={props.loadingIndicator} {...layoutToProps(props.layouts.CommentImplementation)} />
+		),
 		PullRequestState: (state) => <PullRequestStateModal state={state} loadingIndicator={props.loadingIndicator} {...layoutToProps(props.layouts.PullRequestState)} />,
 		Merge: (state) => <MergeModal state={state} loadingIndicator={props.loadingIndicator} {...layoutToProps(props.layouts.Merge)} />,
 		Comment: (state) => (

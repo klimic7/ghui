@@ -23,6 +23,19 @@ export interface BuildCloseModalCtxInput {
 	readonly confirmCloseModal: () => void
 }
 
+export interface BuildCodexExplanationModalCtxInput {
+	readonly halfPage: number
+	readonly closeActiveModal: () => void
+	readonly scrollCodexExplanation: (delta: number) => void
+}
+
+export interface BuildCommentImplementationModalCtxInput {
+	readonly halfPage: number
+	readonly closeActiveModal: () => void
+	readonly confirmCommentImplementation: () => void
+	readonly scrollCommentImplementation: (delta: number) => void
+}
+
 export interface BuildDeleteCommentModalCtxInput {
 	readonly closeActiveModal: () => void
 	readonly confirmDeleteComment: () => void
@@ -47,6 +60,8 @@ export interface BuildOpenRepositoryModalCtxInput {
 
 export interface BuildAppCtxFlags {
 	readonly closeModalActive: boolean
+	readonly codexExplanationModalActive: boolean
+	readonly commentImplementationModalActive: boolean
 	readonly pullRequestStateModalActive: boolean
 	readonly mergeModalActive: boolean
 	readonly commentThreadModalActive: boolean
@@ -69,6 +84,8 @@ export interface BuildAppCtxFlags {
 export interface BuildAppCtxInput {
 	readonly flags: BuildAppCtxFlags
 	readonly closeModal: BuildCloseModalCtxInput
+	readonly codexExplanationModal: BuildCodexExplanationModalCtxInput
+	readonly commentImplementationModal: BuildCommentImplementationModalCtxInput
 	readonly pullRequestStateModal: BuildPullRequestStateModalCtxInput
 	readonly mergeModal: BuildMergeModalCtxInput
 	readonly commentThreadModal: BuildCommentThreadModalCtxInput
@@ -93,6 +110,17 @@ export interface BuildAppCtxInput {
 export const buildAppCtx = (input: BuildAppCtxInput): AppCtx => ({
 	...input.flags,
 	closeModal: { closeModal: input.closeModal.closeActiveModal, confirmClose: input.closeModal.confirmCloseModal },
+	codexExplanationModal: {
+		halfPage: input.codexExplanationModal.halfPage,
+		closeModal: input.codexExplanationModal.closeActiveModal,
+		scrollBy: input.codexExplanationModal.scrollCodexExplanation,
+	},
+	commentImplementationModal: {
+		halfPage: input.commentImplementationModal.halfPage,
+		closeModal: input.commentImplementationModal.closeActiveModal,
+		confirm: input.commentImplementationModal.confirmCommentImplementation,
+		scrollBy: input.commentImplementationModal.scrollCommentImplementation,
+	},
 	pullRequestStateModal: buildPullRequestStateModalCtx(input.pullRequestStateModal),
 	mergeModal: buildMergeModalCtx(input.mergeModal),
 	commentThreadModal: buildCommentThreadModalCtx(input.commentThreadModal),

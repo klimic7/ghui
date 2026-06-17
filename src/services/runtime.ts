@@ -7,6 +7,8 @@ import { BrowserOpener } from "./BrowserOpener.js"
 import { CacheService } from "./CacheService.js"
 import { Clipboard } from "./Clipboard.js"
 import { CommandRunner } from "./CommandRunner.js"
+import { CodexExplainer } from "./CodexExplainer.js"
+import { CodexCommentImplementer } from "./CodexCommentImplementer.js"
 import { GitHubService } from "./GitHubService.js"
 
 const parseOptionalPositiveInt = (value: string | undefined, fallback: number | null) => {
@@ -53,9 +55,10 @@ const githubServiceLayer =
 		: GitHubService.layerNoDeps
 
 const cacheServiceLayer = mockPrCount !== null ? CacheService.disabledLayer : CacheService.layerFromPath(config.cachePath)
+const codexCommentImplementerLayer = CodexCommentImplementer.layerNoDeps.pipe(Layer.provide(githubServiceLayer))
 
 export const githubRuntime = Atom.runtime(
-	Layer.mergeAll(githubServiceLayer, cacheServiceLayer, Clipboard.layerNoDeps, BrowserOpener.layerNoDeps).pipe(
+	Layer.mergeAll(githubServiceLayer, cacheServiceLayer, Clipboard.layerNoDeps, BrowserOpener.layerNoDeps, CodexExplainer.layerNoDeps, codexCommentImplementerLayer).pipe(
 		Layer.provide(CommandRunner.layer),
 		Layer.provideMerge(Observability.layer),
 	),

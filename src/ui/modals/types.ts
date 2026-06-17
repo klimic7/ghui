@@ -1,5 +1,6 @@
 import { Data } from "effect"
 import type { PullRequestLabel, PullRequestMergeInfo, PullRequestMergeKind, PullRequestMergeMethod, RepositoryMergeMethods } from "../../domain.js"
+import type { ImplementReviewCommentInput } from "../../services/CodexCommentImplementer.js"
 import type { ThemeConfig, ThemeMode } from "../../themeConfig.js"
 import type { ThemeId, ThemeTone } from "../colors.js"
 import type { WorkspaceSurface } from "../../workspaceSurfaces.js"
@@ -69,6 +70,29 @@ export interface DeleteCommentModalState {
 }
 
 export interface CommentThreadModalState {
+	readonly scrollOffset: number
+}
+
+export interface CodexExplanationModalState {
+	readonly requestKey: string
+	readonly subject: "range" | "whole"
+	readonly title: string
+	readonly subtitle: string
+	readonly status: "loading" | "ready" | "error"
+	readonly body: string
+	readonly scrollOffset: number
+}
+
+export interface CommentImplementationModalState {
+	readonly requestKey: string
+	readonly input: ImplementReviewCommentInput | null
+	readonly status: "running" | "ready" | "confirming" | "done" | "error"
+	readonly subtitle: string
+	readonly codexOutput: string
+	readonly diff: string
+	readonly commitMessage: string
+	readonly replyBody: string
+	readonly error: string | null
 	readonly scrollOffset: number
 }
 
@@ -176,6 +200,29 @@ export const initialCommentThreadModalState: CommentThreadModalState = {
 	scrollOffset: 0,
 }
 
+export const initialCodexExplanationModalState: CodexExplanationModalState = {
+	requestKey: "",
+	subject: "range",
+	title: "Explain diff",
+	subtitle: "",
+	status: "loading",
+	body: "",
+	scrollOffset: 0,
+}
+
+export const initialCommentImplementationModalState: CommentImplementationModalState = {
+	requestKey: "",
+	input: null,
+	status: "running",
+	subtitle: "",
+	codexOutput: "",
+	diff: "",
+	commitMessage: "",
+	replyBody: "",
+	error: null,
+	scrollOffset: 0,
+}
+
 export const initialChangedFilesModalState: ChangedFilesModalState = {
 	query: "",
 	selectedIndex: 0,
@@ -227,6 +274,8 @@ export type Modal = Data.TaggedEnum<{
 	Comment: CommentModalState
 	DeleteComment: DeleteCommentModalState
 	CommentThread: CommentThreadModalState
+	CodexExplanation: CodexExplanationModalState
+	CommentImplementation: CommentImplementationModalState
 	ChangedFiles: ChangedFilesModalState
 	Filter: FilterModalState
 	SubmitReview: SubmitReviewModalState
@@ -249,6 +298,8 @@ export const modalInitialStates = {
 	Comment: initialCommentModalState,
 	DeleteComment: initialDeleteCommentModalState,
 	CommentThread: initialCommentThreadModalState,
+	CodexExplanation: initialCodexExplanationModalState,
+	CommentImplementation: initialCommentImplementationModalState,
 	ChangedFiles: initialChangedFilesModalState,
 	Filter: initialFilterModalState,
 	SubmitReview: initialSubmitReviewModalState,

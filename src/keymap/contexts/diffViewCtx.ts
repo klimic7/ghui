@@ -41,6 +41,7 @@ export const buildDiffViewCtx = ({
 	alignAnchor: alignSelectedDiffCommentAnchor,
 	selectSide: selectDiffCommentSide,
 	openChangedFiles: () => runCommandById("diff.changed-files"),
+	explainRange: () => runCommandById("diff.explain-range"),
 	openSubmitReview: () => runCommandById("pull.submit-review"),
 	nextFile: () => runCommandById("diff.next-file"),
 	previousFile: () => runCommandById("diff.previous-file"),

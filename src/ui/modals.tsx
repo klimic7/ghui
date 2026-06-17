@@ -4,6 +4,8 @@
 
 export { ChangedFilesModal } from "./modals/ChangedFilesModal.js"
 export { CloseModal } from "./modals/CloseModal.js"
+export { CodexExplanationModal } from "./modals/CodexExplanationModal.js"
+export { CommentImplementationModal } from "./modals/CommentImplementationModal.js"
 export { CommentModal } from "./modals/CommentModal.js"
 export { CommentThreadModal } from "./modals/CommentThreadModal.js"
 export { DeleteCommentModal } from "./modals/DeleteCommentModal.js"
@@ -21,6 +23,8 @@ export { filterChangedFiles, filterLabels, submitReviewOptions } from "./modals/
 export type {
 	ChangedFilesModalState,
 	CloseModalState,
+	CodexExplanationModalState,
+	CommentImplementationModalState,
 	CommandPaletteState,
 	CommentModalState,
 	CommentModalTarget,
@@ -39,6 +43,8 @@ export type {
 export {
 	initialChangedFilesModalState,
 	initialCloseModalState,
+	initialCodexExplanationModalState,
+	initialCommentImplementationModalState,
 	initialCommandPaletteState,
 	initialCommentModalState,
 	initialCommentThreadModalState,

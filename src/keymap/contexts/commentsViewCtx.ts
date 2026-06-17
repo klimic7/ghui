@@ -35,6 +35,7 @@ export const buildCommentsViewCtx = ({
 	refresh: refreshSelectedComments,
 	newComment: () => runCommandById("comments.new"),
 	confirmSelection: confirmCommentSelection,
+	implementSelected: () => runCommandById("comments.implement"),
 	editSelected: () => runCommandById("comments.edit"),
 	deleteSelected: () => runCommandById("comments.delete"),
 })

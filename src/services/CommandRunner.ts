@@ -11,6 +11,8 @@ export interface CommandResult {
 
 export interface RunOptions {
 	readonly stdin?: string
+	readonly timeoutMs?: number
+	readonly successExitCodes?: readonly number[]
 }
 
 export class CommandError extends Schema.TaggedErrorClass<CommandError>()("CommandError", {
@@ -74,14 +76,6 @@ export class CommandRunner extends Context.Service<
 	static readonly layer = Layer.effect(
 		CommandRunner,
 		Effect.gen(function* () {
-			const commandTimeoutError = (command: string, args: readonly string[]) =>
-				new CommandError({
-					command,
-					args: [...args],
-					detail: `Timed out after ${config.commandTimeoutMs}ms`,
-					cause: { timeoutMs: config.commandTimeoutMs },
-				})
-
 			const runProcessRaw = Effect.fn("CommandRunner.runProcessRaw")((command: string, args: readonly string[], stdin: string | undefined) =>
 				Effect.tryPromise({
 					async try(signal) {
@@ -117,11 +111,19 @@ export class CommandRunner extends Context.Service<
 						}),
 				}),
 			)
-			const runProcess = Effect.fn("CommandRunner.runProcess")((command: string, args: readonly string[], stdin: string | undefined) =>
+			const runProcess = Effect.fn("CommandRunner.runProcess")((command: string, args: readonly string[], stdin: string | undefined, timeoutMs: number) =>
 				runProcessRaw(command, args, stdin).pipe(
 					Effect.timeoutOrElse({
-						duration: `${config.commandTimeoutMs} millis`,
-						orElse: () => Effect.fail(commandTimeoutError(command, args)),
+						duration: `${timeoutMs} millis`,
+						orElse: () =>
+							Effect.fail(
+								new CommandError({
+									command,
+									args: [...args],
+									detail: `Timed out after ${timeoutMs}ms`,
+									cause: { timeoutMs },
+								}),
+							),
 					}),
 				),
 			)
@@ -129,7 +131,8 @@ export class CommandRunner extends Context.Service<
 			const run = Effect.fn("CommandRunner.run")(function* (command: string, args: readonly string[], options?: RunOptions) {
 				const startedAt = Date.now()
 				const attributes = commandTelemetryAttributes(command, args)
-				const result = yield* runProcess(command, args, options?.stdin).pipe(
+				const timeoutMs = options?.timeoutMs ?? config.commandTimeoutMs
+				const result = yield* runProcess(command, args, options?.stdin, timeoutMs).pipe(
 					Effect.tap((result) =>
 						Effect.annotateCurrentSpan({
 							...attributes,
@@ -142,7 +145,8 @@ export class CommandRunner extends Context.Service<
 						attributes,
 					}),
 				)
-				if (result.exitCode !== 0) {
+				const successExitCodes = options?.successExitCodes ?? [0]
+				if (!successExitCodes.includes(result.exitCode)) {
 					const detail = result.stderr.trim() || result.stdout.trim() || `exit code ${result.exitCode}`
 					return yield* new CommandError({ command, args: [...args], detail, cause: detail })
 				}

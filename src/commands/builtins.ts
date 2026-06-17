@@ -391,6 +391,16 @@ export const globalCommands: readonly CommandDefinition[] = [
 		}),
 	}),
 	defineCommand({
+		id: "comments.implement",
+		title: "Implement selected review comment",
+		scope: "Comments",
+		subtitle: selectedItemLabelAtom,
+		shortcut: "i",
+		disabledReason: selectedCommentReasonAtom,
+		keywords: ["codex", "implement", "review", "comment"],
+		run: Effect.sync(() => invokeHandoff("implementSelectedComment")),
+	}),
+	defineCommand({
 		id: "pull.labels",
 		title: "Manage labels",
 		scope: "Labels",
@@ -617,6 +627,16 @@ export const globalCommands: readonly CommandDefinition[] = [
 		disabledReason: selectedDiffLineReasonAtom,
 		keywords: ["review", "comment", "range", "visual"],
 		run: Effect.sync(() => invokeHandoff("toggleDiffCommentRange")),
+	}),
+	defineCommand({
+		id: "diff.explain-range",
+		title: "Explain selected diff range",
+		scope: "Diff",
+		subtitle: diffCommentAnchorSubtitleAtom,
+		shortcut: "shift-e",
+		disabledReason: diffOpenRequiredReasonAtom,
+		keywords: ["codex", "explain", "ai", "range", "diff"],
+		run: Effect.sync(() => invokeHandoff("explainSelectedDiffRange")),
 	}),
 	defineCommand({
 		id: "diff.next-thread",

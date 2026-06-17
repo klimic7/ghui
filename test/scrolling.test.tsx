@@ -182,6 +182,7 @@ describe("PR list scrolling", () => {
 		expect(captureCharFrame()).not.toContain("ISSUES")
 		expect(captureCharFrame()).not.toContain("1/2 surface")
 
+		await press(mockInput, renderOnce, { kind: "key", name: "V", shift: true })
 		await press(mockInput, renderOnce, { kind: "arrow", dir: "left" })
 		await press(mockInput, renderOnce, { kind: "arrow", dir: "down" })
 		expect(captureCharFrame()).toContain("← -2")

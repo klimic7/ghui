@@ -1,9 +1,11 @@
 import { context } from "@ghui/keymap"
 import { changedFilesModalKeymap, type ChangedFilesModalCtx } from "./changedFilesModal.ts"
 import { closeModalKeymap, type CloseModalCtx } from "./closeModal.ts"
+import { codexExplanationModalKeymap, type CodexExplanationModalCtx } from "./codexExplanationModal.ts"
 import { commandPaletteKeymap, type CommandPaletteCtx } from "./commandPalette.ts"
 import { commentModalKeymap, type CommentModalCtx } from "./commentModal.ts"
 import { commentsViewKeymap, type CommentsViewCtx } from "./commentsView.ts"
+import { commentImplementationModalKeymap, type CommentImplementationModalCtx } from "./commentImplementationModal.ts"
 import { commentThreadModalKeymap, type CommentThreadModalCtx } from "./commentThreadModal.ts"
 import { deleteCommentModalKeymap, type DeleteCommentModalCtx } from "./deleteCommentModal.ts"
 import { detailViewKeymap, type DetailViewCtx } from "./detailView.ts"
@@ -21,6 +23,8 @@ import { themeModalKeymap, type ThemeModalCtx } from "./themeModal.ts"
 export interface AppCtx {
 	// Active flags
 	readonly closeModalActive: boolean
+	readonly codexExplanationModalActive: boolean
+	readonly commentImplementationModalActive: boolean
 	readonly pullRequestStateModalActive: boolean
 	readonly mergeModalActive: boolean
 	readonly commentThreadModalActive: boolean
@@ -44,6 +48,8 @@ export interface AppCtx {
 
 	// Per-layer narrow contexts
 	readonly closeModal: CloseModalCtx
+	readonly codexExplanationModal: CodexExplanationModalCtx
+	readonly commentImplementationModal: CommentImplementationModalCtx
 	readonly pullRequestStateModal: PullRequestStateModalCtx
 	readonly mergeModal: MergeModalCtx
 	readonly commentThreadModal: CommentThreadModalCtx
@@ -71,6 +77,8 @@ const App = context<AppCtx>()
 
 const modalActive = (a: AppCtx): boolean =>
 	a.closeModalActive ||
+	a.codexExplanationModalActive ||
+	a.commentImplementationModalActive ||
 	a.pullRequestStateModalActive ||
 	a.mergeModalActive ||
 	a.commentThreadModalActive ||
@@ -108,6 +116,8 @@ export const appKeymap = App(
 
 	// Modal layers
 	closeModalKeymap.scope((a) => a.closeModalActive && a.closeModal),
+	codexExplanationModalKeymap.scope((a) => a.codexExplanationModalActive && a.codexExplanationModal),
+	commentImplementationModalKeymap.scope((a) => a.commentImplementationModalActive && a.commentImplementationModal),
 	pullRequestStateModalKeymap.scope((a) => a.pullRequestStateModalActive && a.pullRequestStateModal),
 	mergeModalKeymap.scope((a) => a.mergeModalActive && a.mergeModal),
 	commentThreadModalKeymap.scope((a) => a.commentThreadModalActive && a.commentThreadModal),
