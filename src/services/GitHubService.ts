@@ -32,6 +32,7 @@ import {
 	parsePullRequestSummary,
 	parseRepositoryDetails,
 	parseRepositoryMergeMethods,
+	mergeGraphQLReviewThreadComments,
 	pullRequestFilesToPatch,
 	reviewCommentAsComment,
 	sortComments,
@@ -45,6 +46,8 @@ import {
 	pullRequestDetailQuery,
 	PullRequestDetailResponseSchema,
 	PullRequestFilesResponseSchema,
+	PullRequestReviewThreadsResponseSchema,
+	pullRequestReviewThreadsQuery,
 	pullRequestSummarySearchQuery,
 	RawIssueSearchNodeSchema,
 	RawPullRequestSummaryNodeSchema,
@@ -95,6 +98,7 @@ export class GitHubService extends Context.Service<
 		readonly createPullRequestComment: (input: CreatePullRequestCommentInput) => Effect.Effect<PullRequestReviewComment, GitHubError>
 		readonly createPullRequestIssueComment: (repository: string, number: number, body: string) => Effect.Effect<PullRequestComment, GitHubError>
 		readonly replyToReviewComment: (repository: string, number: number, inReplyTo: string, body: string) => Effect.Effect<PullRequestComment, GitHubError>
+		readonly resolveReviewThread: (threadId: string) => Effect.Effect<void, GitHubError>
 		readonly editPullRequestIssueComment: (repository: string, commentId: string, body: string) => Effect.Effect<PullRequestComment, GitHubError>
 		readonly editReviewComment: (repository: string, commentId: string, body: string) => Effect.Effect<PullRequestComment, GitHubError>
 		readonly deletePullRequestIssueComment: (repository: string, commentId: string) => Effect.Effect<void, CommandError>
@@ -282,10 +286,33 @@ export class GitHubService extends Context.Service<
 					Effect.map((response) => pullRequestFilesToPatch(parsePullRequestFiles(response))),
 				)
 
-			const listPullRequestReviewComments = (repository: string, number: number) =>
-				ghJson("listPullRequestReviewComments", CommentsResponseSchema, ["api", "--paginate", "--slurp", `repos/${repository}/pulls/${number}/comments`]).pipe(
-					Effect.map(parsePullRequestComments),
+			const listPullRequestReviewComments = Effect.fn("GitHubService.listPullRequestReviewComments")(function* (repository: string, number: number) {
+				const repo = repositoryParts(repository)
+				if (!repo) {
+					return yield* new CommandError({ command: "gh", args: [], detail: `Invalid repository: ${repository}`, cause: repository })
+				}
+				const [restComments, reviewThreads] = yield* Effect.all(
+					[
+						ghJson("listPullRequestReviewComments", CommentsResponseSchema, ["api", "--paginate", "--slurp", `repos/${repository}/pulls/${number}/comments`]).pipe(
+							Effect.map(parsePullRequestComments),
+						),
+						ghJson("listPullRequestReviewThreads", PullRequestReviewThreadsResponseSchema, [
+							"api",
+							"graphql",
+							"-f",
+							`query=${pullRequestReviewThreadsQuery}`,
+							"-F",
+							`owner=${repo.owner}`,
+							"-F",
+							`name=${repo.name}`,
+							"-F",
+							`number=${number}`,
+						]),
+					],
+					{ concurrency: "unbounded" },
 				)
+				return mergeGraphQLReviewThreadComments(restComments, reviewThreads)
+			})
 
 			const listPullRequestComments = Effect.fn("GitHubService.listPullRequestComments")(function* (repository: string, number: number) {
 				const [issueComments, reviewComments] = yield* Effect.all(
@@ -376,6 +403,16 @@ export class GitHubService extends Context.Service<
 				if (!review) return fallbackReplyComment(inReplyTo, body)
 				return reviewCommentAsComment({ ...review, inReplyTo: review.inReplyTo ?? inReplyTo })
 			})
+
+			const resolveReviewThread = (threadId: string) =>
+				ghVoid("resolveReviewThread", [
+					"api",
+					"graphql",
+					"-f",
+					"query=mutation($threadId: ID!) { resolveReviewThread(input: { threadId: $threadId }) { thread { id isResolved } } }",
+					"-F",
+					`threadId=${threadId}`,
+				])
 
 			const createPullRequestComment = Effect.fn("GitHubService.createPullRequestComment")(function* (input: CreatePullRequestCommentInput) {
 				const response = yield* command.runSchema(PullRequestCommentSchema, "gh", [
@@ -473,6 +510,7 @@ export class GitHubService extends Context.Service<
 				createPullRequestComment,
 				createPullRequestIssueComment,
 				replyToReviewComment,
+				resolveReviewThread,
 				editPullRequestIssueComment,
 				editReviewComment,
 				deletePullRequestIssueComment,

@@ -108,6 +108,7 @@ export interface SubmitPullRequestReviewInput {
 
 export interface PullRequestReviewComment {
 	readonly id: string
+	readonly threadId?: string
 	readonly path: string
 	readonly line: number
 	readonly side: DiffCommentSide

@@ -24,6 +24,7 @@ import {
 	type RawPullRequestComment,
 	type RawPullRequestFile,
 	type RawPullRequestNode,
+	type RawPullRequestReviewThreadsResponse,
 	type RawPullRequestSummaryNode,
 	type RepositoryDetailsResponseSchema,
 	type RepositoryMergeMethodsResponseSchema,
@@ -314,6 +315,65 @@ export const parsePullRequestComments = (response: Schema.Schema.Type<typeof Com
 		const parsed = parsePullRequestComment(comment)
 		return parsed ? [parsed] : []
 	})
+}
+
+export const mergeGraphQLReviewThreadComments = (
+	restComments: readonly PullRequestReviewComment[],
+	response: RawPullRequestReviewThreadsResponse,
+): readonly PullRequestReviewComment[] => {
+	const threads = response.data.repository?.pullRequest?.reviewThreads.nodes ?? []
+	const byId = new Map(restComments.map((comment) => [comment.id, comment]))
+	const merged = [...restComments]
+	const replaceMerged = (comment: PullRequestReviewComment) => {
+		const index = merged.findIndex((entry) => entry.id === comment.id)
+		if (index >= 0) merged[index] = comment
+	}
+
+	for (const thread of threads) {
+		const nodes = thread.comments.nodes
+		const root = nodes[0]
+		if (!root?.databaseId) continue
+		const rootComment = byId.get(String(root.databaseId))
+		if (!rootComment) continue
+		if (rootComment.threadId !== thread.id) {
+			const nextRoot = { ...rootComment, threadId: thread.id }
+			byId.set(nextRoot.id, nextRoot)
+			replaceMerged(nextRoot)
+		}
+
+		for (const node of nodes) {
+			if (!node.databaseId) continue
+			const id = String(node.databaseId)
+			const existing = byId.get(id)
+			if (existing) {
+				if (existing.threadId !== thread.id) {
+					const nextExisting = { ...existing, threadId: thread.id }
+					byId.set(id, nextExisting)
+					replaceMerged(nextExisting)
+				}
+				continue
+			}
+			const line = node.line ?? node.originalLine
+			if (!line) continue
+
+			const comment = {
+				id,
+				threadId: thread.id,
+				author: node.author?.login ?? "unknown",
+				body: node.body,
+				createdAt: normalizeDate(node.createdAt),
+				url: node.url,
+				path: node.path,
+				line,
+				side: rootComment.side,
+				inReplyTo: node.replyTo?.databaseId ? String(node.replyTo.databaseId) : null,
+			} satisfies PullRequestReviewComment
+			byId.set(id, comment)
+			merged.push(comment)
+		}
+	}
+
+	return merged.sort((left, right) => (left.createdAt?.getTime() ?? 0) - (right.createdAt?.getTime() ?? 0))
 }
 
 export const parseIssueComment = (comment: RawPullRequestComment): PullRequestComment => ({

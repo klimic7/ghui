@@ -140,6 +140,32 @@ export const RepositoryMergeMethodsResponseSchema = Schema.Struct({
 	rebaseMergeAllowed: Schema.Boolean,
 })
 
+export const pullRequestReviewThreadsQuery = `
+query($owner: String!, $name: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) {
+    pullRequest(number: $number) {
+      reviewThreads(first: 100) {
+        nodes {
+          id
+          comments(first: 100) {
+            nodes {
+              databaseId
+              author { login }
+              body
+              createdAt
+              url
+              replyTo { databaseId }
+              path
+              line
+              originalLine
+            }
+          }
+        }
+      }
+    }
+  }
+}`
+
 export const MergeInfoResponseSchema = Schema.Struct({
 	number: Schema.Number,
 	title: Schema.String,
@@ -212,6 +238,45 @@ export const PullRequestFileSchema = Schema.Struct({
 
 export const CommentsResponseSchema = Schema.Union([Schema.Array(PullRequestCommentSchema), Schema.Array(Schema.Array(PullRequestCommentSchema))])
 
+const GraphQLReviewThreadCommentSchema = Schema.Struct({
+	databaseId: Schema.NullOr(Schema.Number),
+	author: Schema.NullOr(RawAuthorSchema),
+	body: Schema.String,
+	createdAt: Schema.String,
+	url: Schema.String,
+	replyTo: Schema.NullOr(
+		Schema.Struct({
+			databaseId: Schema.NullOr(Schema.Number),
+		}),
+	),
+	path: Schema.String,
+	line: Schema.NullOr(Schema.Number),
+	originalLine: Schema.NullOr(Schema.Number),
+})
+
+export const PullRequestReviewThreadsResponseSchema = Schema.Struct({
+	data: Schema.Struct({
+		repository: Schema.NullOr(
+			Schema.Struct({
+				pullRequest: Schema.NullOr(
+					Schema.Struct({
+						reviewThreads: Schema.Struct({
+							nodes: Schema.Array(
+								Schema.Struct({
+									id: Schema.String,
+									comments: Schema.Struct({
+										nodes: Schema.Array(GraphQLReviewThreadCommentSchema),
+									}),
+								}),
+							),
+						}),
+					}),
+				),
+			}),
+		),
+	}),
+})
+
 export const PullRequestFilesResponseSchema = Schema.Union([Schema.Array(PullRequestFileSchema), Schema.Array(Schema.Array(PullRequestFileSchema))])
 
 export const RepoLabelsResponseSchema = Schema.Array(
@@ -229,6 +294,7 @@ export type RawPullRequestSummaryNode = Schema.Schema.Type<typeof RawPullRequest
 export type RawPullRequestNode = Schema.Schema.Type<typeof RawPullRequestNodeSchema>
 export type RawCheckContext = Schema.Schema.Type<typeof RawCheckContextSchema>
 export type RawPullRequestComment = Schema.Schema.Type<typeof PullRequestCommentSchema>
+export type RawPullRequestReviewThreadsResponse = Schema.Schema.Type<typeof PullRequestReviewThreadsResponseSchema>
 export type RawPullRequestFile = Schema.Schema.Type<typeof PullRequestFileSchema>
 export type RawIssueSearchNode = Schema.Schema.Type<typeof RawIssueSearchNodeSchema>
 

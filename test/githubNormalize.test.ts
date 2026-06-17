@@ -8,6 +8,7 @@ import {
 	getPullRequestState,
 	getReviewStatus,
 	itemPage,
+	mergeGraphQLReviewThreadComments,
 	normalizeMergeable,
 	parseIssueComment,
 	parseIssueComments,
@@ -305,6 +306,69 @@ describe("parsePullRequestComments and parseIssueComments handle slurped pages",
 		const parsed = parseIssueComments([issue])
 		expect(parsed).toHaveLength(1)
 		expect(parsed[0]?._tag).toBe("comment")
+	})
+})
+
+describe("mergeGraphQLReviewThreadComments", () => {
+	test("fills in replies that REST pull review comments omit", () => {
+		const root = parsePullRequestComment({
+			id: 3419408642,
+			path: "app/views/funds_instruments/show.html.haml",
+			original_line: 37,
+			side: "RIGHT",
+			user: { login: "gemini-code-assist[bot]" },
+			body: "Root",
+			created_at: "2026-06-16T09:01:13Z",
+		})!
+		const merged = mergeGraphQLReviewThreadComments([root], {
+			data: {
+				repository: {
+					pullRequest: {
+						reviewThreads: {
+							nodes: [
+								{
+									comments: {
+										nodes: [
+											{
+												databaseId: 3419408642,
+												author: { login: "gemini-code-assist[bot]" },
+												body: "Root",
+												createdAt: "2026-06-16T09:01:13Z",
+												url: "https://github.com/example/repo/pull/1#discussion_r3419408642",
+												replyTo: null,
+												path: "app/views/funds_instruments/show.html.haml",
+												line: null,
+												originalLine: 37,
+											},
+											{
+												databaseId: 3419468561,
+												author: { login: "klimic7" },
+												body: "Implemented",
+												createdAt: "2026-06-16T09:11:05Z",
+												url: "https://github.com/example/repo/pull/1#discussion_r3419468561",
+												replyTo: { databaseId: 3419408642 },
+												path: "app/views/funds_instruments/show.html.haml",
+												line: null,
+												originalLine: 37,
+											},
+										],
+									},
+								},
+							],
+						},
+					},
+				},
+			},
+		})
+
+		expect(merged).toHaveLength(2)
+		expect(merged[1]).toMatchObject({
+			id: "3419468561",
+			inReplyTo: "3419408642",
+			side: "RIGHT",
+			line: 37,
+			body: "Implemented",
+		})
 	})
 })
 

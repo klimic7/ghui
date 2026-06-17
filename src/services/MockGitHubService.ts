@@ -345,6 +345,7 @@ export const MockGitHubService = {
 						url: null,
 						inReplyTo,
 					}),
+				resolveReviewThread: () => Effect.void,
 				editPullRequestIssueComment: (_repo, commentId, body) =>
 					Effect.succeed({
 						_tag: "comment" as const,
