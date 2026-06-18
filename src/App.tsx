@@ -236,10 +236,11 @@ import { useTerminalFocus } from "./ui/useTerminalFocus.js"
 import { useTextInputDispatcher } from "./ui/useTextInputDispatcher.js"
 import { registerHandoff } from "./commands/handoffs.js"
 import { commandRuntimeAtom } from "./commands/runtimeAtom.js"
+import { detectCurrentGitHubRepository } from "./gitRemotes.js"
 import { issueViewForPullRequestView } from "./viewSync.js"
 import { nextWorkspaceSurface, repositoryWorkspaceSurfaces, userWorkspaceSurfaces, type WorkspaceSurface } from "./workspaceSurfaces.js"
 import { detectedRepository, mockRepositoryCatalog, mockWorkspacePreferencesPath } from "./services/runtime.js"
-import { initialWorkingDirectory } from "./workingDirectory.js"
+import { initialWorkingDirectory, initialWorkingDirectoryCandidates } from "./workingDirectory.js"
 
 interface DetailPlaceholderInput {
 	readonly status: LoadStatus
@@ -323,6 +324,7 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 		refreshPullRequestsAtomRaw()
 	}, [refreshPullRequestsAtomRaw, registry])
 	const [activeView, setActiveView] = useAtom(activeViewAtom)
+	const codexCheckoutCandidates = useMemo(() => initialWorkingDirectoryCandidates.map((path) => ({ path, repository: detectCurrentGitHubRepository(path) })), [])
 	const setQueueLoadCache = useAtomSet(queueLoadCacheAtom)
 	const setQueueSelection = useAtomSet(queueSelectionAtom)
 	const [selectedIndex, setSelectedIndex] = useAtom(selectedIndexAtom)
@@ -1913,12 +1915,20 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 
 	const currentDiffFileIndex = () => selectedDiffNavigationTarget?.fileIndex ?? diffFileIndex
 	const currentDiffFile = () => readyDiffFiles[currentDiffFileIndex()] ?? null
-	const currentCheckoutPath = () => initialWorkingDirectory
+	const currentCheckout = () => {
+		if (!selectedPullRequest) return null
+		return codexCheckoutCandidates.find((candidate) => candidate.repository === selectedPullRequest.repository) ?? null
+	}
+	const currentCheckoutPath = () => currentCheckout()?.path ?? initialWorkingDirectory
 	const ensureCodexCheckout = () => {
 		if (!selectedPullRequest) return false
-		if (detectedRepository === selectedPullRequest.repository) return true
-		const actual = detectedRepository ? `aktuální checkout je ${detectedRepository}` : "aktuální složka není GitHub git checkout"
-		flashNotice(`Codex tu není dostupný: ${actual} (${initialWorkingDirectory}); spusť ghui ve složce ${selectedPullRequest.repository}.`)
+		const checkout = currentCheckout()
+		if (checkout) return true
+		const candidates =
+			codexCheckoutCandidates.length > 0
+				? codexCheckoutCandidates.map((candidate) => `${candidate.path}${candidate.repository ? ` = ${candidate.repository}` : " (není GitHub git checkout)"}`).join(", ")
+				: initialWorkingDirectory
+		flashNotice(`Codex tu není dostupný: nenašel checkout ${selectedPullRequest.repository}. Kandidáti: ${candidates}`)
 		return false
 	}
 	const selectedCodexDiffRange = () => {

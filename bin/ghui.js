@@ -34,8 +34,14 @@ Usage:
   ghui -h, --help   Show this help message
 `
 
+const startupCwd = process.cwd()
+
 const run = (target, args = process.argv.slice(2)) => {
-	const result = childProcess.spawnSync(target, args, { stdio: "inherit" })
+	const result = childProcess.spawnSync(target, args, {
+		stdio: "inherit",
+		cwd: startupCwd,
+		env: { ...process.env, GHUI_STARTUP_CWD: process.env.GHUI_STARTUP_CWD ?? startupCwd },
+	})
 	if (result.error) {
 		console.error(result.error.message)
 		process.exit(1)
