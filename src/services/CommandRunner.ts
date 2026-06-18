@@ -11,7 +11,7 @@ export interface CommandResult {
 
 export interface RunOptions {
 	readonly stdin?: string
-	readonly timeoutMs?: number
+	readonly timeoutMs?: number | null
 	readonly successExitCodes?: readonly number[]
 	readonly cwd?: string
 }
@@ -113,8 +113,16 @@ export class CommandRunner extends Context.Service<
 						}),
 				}),
 			)
-			const runProcess = Effect.fn("CommandRunner.runProcess")((command: string, args: readonly string[], stdin: string | undefined, cwd: string | undefined, timeoutMs: number) =>
-				runProcessRaw(command, args, stdin, cwd).pipe(
+			const runProcess = Effect.fn("CommandRunner.runProcess")((
+				command: string,
+				args: readonly string[],
+				stdin: string | undefined,
+				cwd: string | undefined,
+				timeoutMs: number | null,
+			) => {
+				const process = runProcessRaw(command, args, stdin, cwd)
+				if (timeoutMs === null) return process
+				return process.pipe(
 					Effect.timeoutOrElse({
 						duration: `${timeoutMs} millis`,
 						orElse: () =>
@@ -127,8 +135,8 @@ export class CommandRunner extends Context.Service<
 								}),
 							),
 					}),
-				),
-			)
+				)
+			})
 
 			const run = Effect.fn("CommandRunner.run")(function* (command: string, args: readonly string[], options?: RunOptions) {
 				const startedAt = Date.now()

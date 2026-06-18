@@ -11,7 +11,7 @@ export interface CommentImplementationModalCtx {
 const Impl = context<CommentImplementationModalCtx>()
 
 export const commentImplementationModalKeymap = Impl(
-	{ id: "comment-implementation.close", title: "Close implementation", keys: ["escape"], run: (s) => s.closeModal() },
+	{ id: "comment-implementation.close", title: "Close implementation", keys: ["escape", "esc", "q"], run: (s) => s.closeModal() },
 	{ id: "comment-implementation.confirm", title: "Commit, push, reply, resolve", keys: ["return"], run: (s) => s.confirm() },
 	{ id: "comment-implementation.copy", title: "Copy Codex response", keys: ["y"], run: (s) => s.copy() },
 	{ id: "comment-implementation.up", title: "Up", keys: ["k", "up"], run: (s) => s.scrollBy(-1) },

@@ -13,6 +13,8 @@ interface RecordedCall {
 interface FakeCommandRunnerOptions {
 	readonly currentBranch?: string
 	readonly remoteBranchAvailable?: boolean
+	readonly gitTopLevel?: string | null
+	readonly remoteRepository?: string
 }
 
 const fakeCommandRunner = (recorder: RecordedCall[], options: FakeCommandRunnerOptions = {}) => {
@@ -23,14 +25,19 @@ const fakeCommandRunner = (recorder: RecordedCall[], options: FakeCommandRunnerO
 		CommandRunner.of({
 			run: (command, args, runOptions) => {
 				recorder.push({ command, args: [...args], ...(runOptions ? { options: runOptions } : {}) })
+				const topLevel = options.gitTopLevel === undefined ? "/workspace/repo" : options.gitTopLevel
+				if (command === "git" && args[0] === "-C" && args.slice(2).join(" ") === "rev-parse --show-toplevel") {
+					return Effect.succeed({ stdout: topLevel ? `${topLevel}\n` : "", stderr: "", exitCode: topLevel ? 0 : 128 })
+				}
 				const stdout = (() => {
 					if (command === "git" && args.join(" ") === "rev-parse --show-toplevel") return "/workspace/repo\n"
-					if (command === "git" && args.join(" ") === "-C /workspace/repo rev-parse --show-toplevel") return "/workspace/repo\n"
-					if (command === "find") return "/workspace/repo/.git\n"
 					if (command === "git" && args.join(" ") === "branch --show-current") return checkedOut ? "feature/review\n" : `${options.currentBranch ?? "feature/review"}\n`
 					if (command === "git" && args.join(" ") === "status --porcelain") return ""
 					if (command === "git" && args.join(" ") === "rev-parse --abbrev-ref --symbolic-full-name @{u}") return "origin/feature/review\n"
-					if (command === "git" && args.join(" ") === "remote -v") return "origin\tgit@github.com:owner/repo.git (fetch)\norigin\tgit@github.com:owner/repo.git (push)\n"
+					if (command === "git" && args.join(" ") === "remote -v") {
+						const repository = options.remoteRepository ?? "owner/repo"
+						return `origin\tgit@github.com:${repository}.git (fetch)\norigin\tgit@github.com:${repository}.git (push)\n`
+					}
 					if (command === "git" && args.join(" ") === "remote") return "origin\nupstream\n"
 					if (command === "git" && args.join(" ") === "branch --remotes --list */feature/review") return remoteBranchAvailable() ? "origin/feature/review\n" : ""
 					if (command === "git" && args.join(" ") === "ls-remote --heads origin feature/review") return remoteBranchAvailable() ? "abc123\trefs/heads/feature/review\n" : ""
@@ -94,7 +101,9 @@ describe("CodexCommentImplementer", () => {
 		expect(result.checkoutPath).toBe("/workspace/repo")
 		expect(result.pushRemote).toBe("origin")
 		expect(recorder.some((call) => call.command === "git" && call.args.includes("--no-index"))).toBe(false)
+		expect(recorder.some((call) => call.command === "find")).toBe(false)
 		const codexCall = recorder.find((call) => call.command === "codex")
+		expect(codexCall?.options?.timeoutMs).toBe(null)
 		expect(codexCall?.options?.stdin).toContain("Celý PR diff pro kontext")
 		expect(codexCall?.options?.stdin).toContain("diff --git a/src/related.ts b/src/related.ts")
 	})
@@ -107,22 +116,33 @@ describe("CodexCommentImplementer", () => {
 			recorder,
 		)
 
-		expect(phases).toContain("Finding local checkout")
+		expect(phases).toContain("Checking current checkout")
 		expect(phases).toContain("Running Codex")
 		expect(phases).toContain("Collecting change summary")
 	})
 
-	test("does not reject remotes with a different repository name", async () => {
+	test("fails when ghui is not running from the expected repository checkout", async () => {
 		const recorder: RecordedCall[] = []
-		const result = await runWith(
-			CodexCommentImplementer.use((codex) => codex.implementReviewComment(reviewCommentInput("upstream/project"))),
+		const error = await runWith(
+			CodexCommentImplementer.use((codex) => codex.implementReviewComment(reviewCommentInput())),
 			recorder,
-		)
+			{ remoteRepository: "other/repo" },
+		).catch((error: unknown) => error as { readonly detail?: string })
 
-		expect(result.codexOutput).toContain("Upravil")
-		expect(result.checkoutPath).toBe("/workspace/repo")
-		expect(result.pushRemote).toBe("origin")
-		expect(recorder.some((call) => call.command === "codex")).toBe(true)
+		expect(error.detail).toContain("Current checkout is not owner/repo")
+		expect(recorder.some((call) => call.command === "codex")).toBe(false)
+	})
+
+	test("fails when ghui is not running inside a git checkout", async () => {
+		const recorder: RecordedCall[] = []
+		const error = await runWith(
+			CodexCommentImplementer.use((codex) => codex.implementReviewComment(reviewCommentInput())),
+			recorder,
+			{ gitTopLevel: null },
+		).catch((error: unknown) => error as { readonly detail?: string })
+
+		expect(error.detail).toContain("Current directory is not a git checkout")
+		expect(recorder.some((call) => call.command === "codex")).toBe(false)
 	})
 
 	test("checks out the PR branch when only the repository checkout is available", async () => {

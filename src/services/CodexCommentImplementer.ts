@@ -43,25 +43,10 @@ const splitLines = (value: string): readonly string[] =>
 		.split(/\r?\n/)
 		.map((line) => line.trim())
 		.filter((line) => line.length > 0)
-const dirname = (path: string) => path.replace(/\/+$/, "").replace(/\/[^/]*$/, "") || "/"
 const repositoryRemotePattern = (repository: string) => new RegExp(`github\\.com[:/]${repository.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?:\\.git)?`, "i")
-const repositoryName = (repository: string) => repository.split("/")[1]?.toLowerCase() ?? repository.toLowerCase()
-const remoteRepositoryNames = (remotes: string): readonly string[] =>
-	Array.from(remotes.matchAll(/github\.com[:/]([^/\s:]+)\/([^/\s]+?)(?:\.git)?(?:\s|$)/gi), (match) => match[2]?.toLowerCase()).filter((name): name is string => Boolean(name))
-const checkoutRepositoryScore = (remotes: string, repository: string): number => {
-	if (repositoryRemotePattern(repository).test(remotes)) return 2
-	return remoteRepositoryNames(remotes).includes(repositoryName(repository)) ? 1 : 0
-}
 const branchRemote = (upstream: string, headRefName: string): string | null => {
 	if (!upstream.endsWith(`/${headRefName}`)) return null
 	return upstream.slice(0, -headRefName.length - 1) || null
-}
-const envPathList = (value: string | undefined): readonly string[] => (value ?? "").split(":").filter((entry) => entry.length > 0)
-const checkoutSearchRoots = (): readonly string[] => {
-	const home = process.env.HOME
-	const commonRoots = home ? [`${home}/Work`, `${home}/work`, `${home}/Projects`, `${home}/projects`, home] : []
-	const roots = [process.cwd(), ...envPathList(process.env.GHUI_REPO_ROOTS), ...commonRoots]
-	return Array.from(new Set(roots))
 }
 const progress = (input: ImplementReviewCommentInput, message: string) => Effect.sync(() => input.onProgress?.(message))
 
@@ -151,66 +136,49 @@ export class CodexCommentImplementer extends Context.Service<
 				return topLevel.exitCode === 0 ? topLevel.stdout.trim() : null
 			})
 
-			const discoverCheckouts = Effect.fn("CodexCommentImplementer.discoverCheckouts")(function* () {
-				const candidates = new Set<string>()
-				for (const root of checkoutSearchRoots()) {
-					const topLevel = yield* gitTopLevel(root)
-					if (topLevel) candidates.add(topLevel)
-					const found = yield* command.run("find", [root, "-maxdepth", "5", "-name", ".git", "-prune"], { successExitCodes: [0, 1] })
-					for (const gitDir of splitLines(found.stdout)) candidates.add(dirname(gitDir))
+			const currentCheckout = Effect.fn("CodexCommentImplementer.currentCheckout")(function* (input: ImplementReviewCommentInput) {
+				yield* progress(input, "Checking current checkout")
+				const checkoutPath = yield* gitTopLevel(process.cwd())
+				if (!checkoutPath) {
+					return yield* new CommandError({
+						command: "git",
+						args: ["rev-parse", "--show-toplevel"],
+						detail: `Current directory is not a git checkout. To implement review comments, start ghui from the local checkout for ${input.repository}.`,
+						cause: process.cwd(),
+					})
 				}
-				return [...candidates]
-			})
-
-			const findCheckout = Effect.fn("CodexCommentImplementer.findCheckout")(function* (input: ImplementReviewCommentInput) {
-				yield* progress(input, "Finding local checkout")
-				const matches: Array<{ readonly checkoutPath: string; readonly pushRemote: string | null; readonly currentBranchMatches: boolean; readonly repositoryScore: number }> = []
-				const discoveredCheckouts = yield* discoverCheckouts()
-				for (const checkoutPath of discoveredCheckouts) {
-					const branch = yield* command.run("git", ["branch", "--show-current"], { cwd: checkoutPath, successExitCodes: [0, 128] })
-					const currentBranchMatches = branch.exitCode === 0 && branch.stdout.trim() === input.headRefName
-					const pushRemote = yield* findPushRemote(checkoutPath, input).pipe(Effect.catch(() => Effect.succeed(null)))
-					const remotes = yield* command.run("git", ["remote", "-v"], { cwd: checkoutPath, successExitCodes: [0, 128] })
-					const repositoryScore = remotes.exitCode === 0 ? checkoutRepositoryScore(remotes.stdout, input.repository) : 0
-					if (!pushRemote && repositoryScore === 0 && !currentBranchMatches) continue
-					matches.push({ checkoutPath, pushRemote, currentBranchMatches, repositoryScore })
+				const remotes = yield* command.run("git", ["remote", "-v"], { cwd: checkoutPath, successExitCodes: [0, 128] })
+				if (remotes.exitCode !== 0 || !repositoryRemotePattern(input.repository).test(remotes.stdout)) {
+					return yield* new CommandError({
+						command: "git",
+						args: ["remote", "-v"],
+						detail: `Current checkout is not ${input.repository}. To implement review comments, start ghui from the local checkout for ${input.repository}.`,
+						cause: remotes.stdout,
+					})
 				}
-				const match =
-					matches.find((candidate) => candidate.repositoryScore > 0 && candidate.currentBranchMatches && candidate.pushRemote) ??
-					matches.find((candidate) => candidate.repositoryScore > 0 && candidate.pushRemote) ??
-					matches.find((candidate) => candidate.repositoryScore > 0) ??
-					matches.find((candidate) => candidate.currentBranchMatches && candidate.pushRemote) ??
-					matches.find((candidate) => candidate.currentBranchMatches) ??
-					matches[0]
-				if (match) return { checkoutPath: match.checkoutPath, pushRemote: match.pushRemote }
-				return yield* new CommandError({
-					command: "git",
-					args: ["branch", "--remotes", "--list", `*/${input.headRefName}`],
-					detail: `Could not find a local checkout for ${input.repository} or PR head branch ${input.headRefName}. Searched roots: ${checkoutSearchRoots().join(", ")}. Discovered checkouts: ${discoveredCheckouts.length > 0 ? discoveredCheckouts.join(", ") : "none"}. Set GHUI_REPO_ROOTS to the parent directory containing your checkouts.`,
-					cause: discoveredCheckouts.join("\n"),
-				})
+				return checkoutPath
 			})
 
 			const ensureLocalCheckout = Effect.fn("CodexCommentImplementer.ensureLocalCheckout")(function* (input: ImplementReviewCommentInput) {
-				const checkout = yield* findCheckout(input)
-				yield* progress(input, `Checking worktree in ${checkout.checkoutPath}`)
-				const status = yield* command.run("git", ["status", "--porcelain"], { cwd: checkout.checkoutPath })
+				const checkoutPath = yield* currentCheckout(input)
+				yield* progress(input, `Checking worktree in ${checkoutPath}`)
+				const status = yield* command.run("git", ["status", "--porcelain"], { cwd: checkoutPath })
 				if (status.stdout.trim().length > 0) {
 					return yield* new CommandError({
 						command: "git",
 						args: ["status", "--porcelain"],
-						detail: `Working tree is not clean in ${checkout.checkoutPath}. Commit or stash local changes before implementing a review comment.`,
+						detail: `Working tree is not clean in ${checkoutPath}. Commit or stash local changes before implementing a review comment.`,
 						cause: status.stdout,
 					})
 				}
-				const branch = yield* command.run("git", ["branch", "--show-current"], { cwd: checkout.checkoutPath, successExitCodes: [0, 128] })
+				const branch = yield* command.run("git", ["branch", "--show-current"], { cwd: checkoutPath, successExitCodes: [0, 128] })
 				if (branch.exitCode !== 0 || branch.stdout.trim() !== input.headRefName) {
 					yield* progress(input, "Checking out PR branch")
-					yield* command.run("gh", ["pr", "checkout", String(input.number), "--repo", input.repository], { cwd: checkout.checkoutPath, timeoutMs: 120_000 })
+					yield* command.run("gh", ["pr", "checkout", String(input.number), "--repo", input.repository], { cwd: checkoutPath, timeoutMs: 120_000 })
 				}
 				yield* progress(input, "Resolving push remote")
-				const pushRemote = checkout.pushRemote ?? (yield* findPushRemote(checkout.checkoutPath, input))
-				return { checkoutPath: checkout.checkoutPath, pushRemote }
+				const pushRemote = yield* findPushRemote(checkoutPath, input)
+				return { checkoutPath, pushRemote }
 			})
 
 			const implementReviewComment = Effect.fn("CodexCommentImplementer.implementReviewComment")(function* (input: ImplementReviewCommentInput) {
@@ -219,7 +187,7 @@ export class CodexCommentImplementer extends Context.Service<
 				const codex = yield* command.run("codex", ["exec", "--skip-git-repo-check", "--sandbox", "workspace-write", "--ephemeral", "--color", "never", "-"], {
 					cwd: checkoutPath,
 					stdin: buildPrompt(input),
-					timeoutMs: 180_000,
+					timeoutMs: null,
 				})
 				yield* progress(input, "Collecting change summary")
 				const diff = yield* currentReviewableDiff(checkoutPath)

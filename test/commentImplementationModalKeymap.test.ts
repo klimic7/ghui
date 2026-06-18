@@ -19,7 +19,9 @@ describe("commentImplementationModalKeymap", () => {
 		dispatcher.dispatch(parseKey("y"))
 		dispatcher.dispatch(parseKey("return"))
 		dispatcher.dispatch(parseKey("escape"))
+		dispatcher.dispatch(parseKey("esc"))
+		dispatcher.dispatch(parseKey("q"))
 
-		expect(log).toEqual(["scroll:1", "scroll:-1", "scroll:10", "copy", "confirm", "close"])
+		expect(log).toEqual(["scroll:1", "scroll:-1", "scroll:10", "copy", "confirm", "close", "close", "close"])
 	})
 })
