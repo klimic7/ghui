@@ -82,7 +82,7 @@ export const diffViewKeymap = Diff(
 	// File nav
 	{ id: "diff.changed-files", title: "Changed files", keys: ["f"], run: (s) => s.openChangedFiles() },
 	{ id: "diff.explain-range", title: "Explain selected range", keys: ["shift+e"], run: (s) => s.explainRange() },
-	{ id: "diff.ask-question", title: "Ask Codex", keys: ["q"], run: (s) => s.askQuestion() },
+	{ id: "diff.ask-question", title: "Ask Codex", keys: ["shift+q"], run: (s) => s.askQuestion() },
 	{ id: "diff.toggle-reviewed", title: "Toggle reviewed", keys: ["c"], run: (s) => s.toggleReviewed() },
 	{ id: "diff.next-file", title: "Next file", keys: ["]"], run: (s) => s.nextFile() },
 	{ id: "diff.previous-file", title: "Previous file", keys: ["["], run: (s) => s.previousFile() },

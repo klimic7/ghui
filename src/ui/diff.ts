@@ -78,6 +78,16 @@ export const createDiffSyntaxStyle = () =>
 		default: { fg: parseColor(colors.text) },
 	})
 
+export const diffFileFingerprint = (file: DiffFilePatch) => {
+	let hash = 0x811c9dc5
+	const value = `${file.name}\n${file.patch}`
+	for (let index = 0; index < value.length; index++) {
+		hash ^= value.charCodeAt(index)
+		hash = Math.imul(hash, 0x01000193)
+	}
+	return (hash >>> 0).toString(16).padStart(8, "0")
+}
+
 const unquoteDiffPath = (path: string) => path.replace(/^"|"$/g, "").replace(/^a\//, "").replace(/^b\//, "")
 
 const readDiffPath = (value: string, start: number) => {

@@ -29,7 +29,7 @@ describe("diffViewKeymap", () => {
 			openInBrowser: () => log.push("browser"),
 		}))
 
-		dispatcher.dispatch(parseKey("q"))
+		dispatcher.dispatch(parseKey("shift+q"))
 		dispatcher.dispatch(parseKey("c"))
 
 		expect(log).toEqual(["ask", "reviewed"])

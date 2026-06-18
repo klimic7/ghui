@@ -40,6 +40,18 @@ export interface RepoRollupRow {
 	readonly lastActivityAt: Date | null
 }
 
+export interface ReviewedDiffFileRow {
+	readonly path: string
+	readonly fingerprint: string
+	readonly lineKeys: readonly string[]
+}
+
+export interface ReviewedDiffFilesInput {
+	readonly repository: string
+	readonly number: number
+	readonly files: readonly ReviewedDiffFileRow[]
+}
+
 export class CacheError extends Schema.TaggedErrorClass<CacheError>()("CacheError", {
 	operation: Schema.String,
 	cause: Schema.Defect,
@@ -173,6 +185,12 @@ interface RepositoryDetailsRow {
 
 interface RepositoryDetailsFetchedAtRow {
 	readonly updated_at: string
+}
+
+interface ReviewedDiffFileQueryRow {
+	readonly path: string
+	readonly fingerprint: string
+	readonly line_keys_json: string
 }
 
 export const pullRequestCacheKey = ({ repository, number }: PullRequestCacheKey) => `${repository}#${number}`
@@ -339,6 +357,12 @@ const decodeStringArrayJson = (json: string): Effect.Effect<readonly string[], C
 		return yield* decodeCached("decodeQueueKeys", Schema.Array(Schema.String), value)
 	})
 
+const decodeReviewedDiffLineKeysJson = (json: string): Effect.Effect<readonly string[], CacheError> =>
+	Effect.gen(function* () {
+		const value = yield* parseJson("decodeReviewedDiffLineKeys", json)
+		return yield* decodeCached("decodeReviewedDiffLineKeys", Schema.Array(Schema.String), value)
+	})
+
 const decodeWorkspacePreferencesJson = (json: string): Effect.Effect<WorkspacePreferences, CacheError> =>
 	Effect.gen(function* () {
 		const value = yield* parseJson("decodeWorkspacePreferences", json)
@@ -434,6 +458,19 @@ const cacheMigrations = {
 		)`
 		yield* sql`CREATE INDEX IF NOT EXISTS issues_repository_number_idx ON issues (repository, number)`
 	}),
+	"006_reviewed_diff_files": Effect.gen(function* () {
+		const sql = yield* SqlClient.SqlClient
+		yield* sql`CREATE TABLE IF NOT EXISTS reviewed_diff_files (
+			repository TEXT NOT NULL,
+			number INTEGER NOT NULL,
+			path TEXT NOT NULL,
+			fingerprint TEXT NOT NULL,
+			line_keys_json TEXT NOT NULL,
+			updated_at TEXT NOT NULL,
+			PRIMARY KEY (repository, number, path)
+		)`
+		yield* sql`CREATE INDEX IF NOT EXISTS reviewed_diff_files_updated_at_idx ON reviewed_diff_files (updated_at)`
+	}),
 } satisfies Record<string, Effect.Effect<void, unknown, SqlClient.SqlClient>>
 
 const pullRequestRow = (pullRequest: PullRequestItem, updatedAt = new Date().toISOString()) => ({
@@ -522,6 +559,7 @@ const pruneSql = (sql: SqlClient.SqlClient) => {
 				SELECT value FROM queue_snapshots, json_each(queue_snapshots.pr_keys_json)
 				WHERE view_key LIKE 'issue:%'
 			)`
+		yield* sql`DELETE FROM reviewed_diff_files WHERE updated_at < ${cutoff}`
 	}).pipe(Effect.catch(() => Effect.void))
 }
 
@@ -807,6 +845,37 @@ const liveCacheService = (sql: SqlClient.SqlClient) => {
 				updated_at = excluded.updated_at`.pipe(Effect.catch(() => Effect.void))
 	})
 
+	const readReviewedDiffFiles = (input: { readonly repository: string; readonly number: number }): Effect.Effect<readonly ReviewedDiffFileRow[], CacheError> =>
+		Effect.gen(function* () {
+			const rows =
+				yield* sql<ReviewedDiffFileQueryRow>`SELECT path, fingerprint, line_keys_json FROM reviewed_diff_files WHERE repository = ${input.repository} AND number = ${input.number}`
+			const files: ReviewedDiffFileRow[] = []
+			for (const row of rows) {
+				const lineKeys = yield* decodeReviewedDiffLineKeysJson(row.line_keys_json).pipe(Effect.catch(() => Effect.succeed([])))
+				if (lineKeys.length > 0) files.push({ path: row.path, fingerprint: row.fingerprint, lineKeys })
+			}
+			return files
+		}).pipe(Effect.mapError((cause) => toCacheError("readReviewedDiffFiles", cause)))
+
+	const writeReviewedDiffFiles = Effect.fn("CacheService.writeReviewedDiffFiles")(function* (input: ReviewedDiffFilesInput) {
+		const updatedAt = new Date().toISOString()
+		const write = Effect.gen(function* () {
+			yield* sql`DELETE FROM reviewed_diff_files WHERE repository = ${input.repository} AND number = ${input.number}`
+			const rows = input.files
+				.map((file) => ({
+					repository: input.repository,
+					number: input.number,
+					path: file.path,
+					fingerprint: file.fingerprint,
+					line_keys_json: JSON.stringify([...new Set(file.lineKeys)]),
+					updated_at: updatedAt,
+				}))
+				.filter((file) => file.line_keys_json !== "[]")
+			if (rows.length > 0) yield* sql`INSERT INTO reviewed_diff_files ${sql.insert(rows)}`
+		})
+		yield* sql.withTransaction(write).pipe(Effect.catch(() => Effect.void))
+	})
+
 	const prune = Effect.fn("CacheService.prune")(function* () {
 		yield* pruneSql(sql)
 	})
@@ -824,6 +893,8 @@ const liveCacheService = (sql: SqlClient.SqlClient) => {
 		readRepositoryDetails,
 		readRepositoryDetailsFetchedAt,
 		writeRepositoryDetails,
+		readReviewedDiffFiles,
+		writeReviewedDiffFiles,
 		readWorkspacePreferences,
 		writeWorkspacePreferences,
 		prune,
@@ -845,6 +916,8 @@ export class CacheService extends Context.Service<
 		readonly readRepositoryDetails: (repository: string) => Effect.Effect<RepositoryDetails | null, CacheError>
 		readonly readRepositoryDetailsFetchedAt: (repository: string) => Effect.Effect<Date | null, CacheError>
 		readonly writeRepositoryDetails: (details: RepositoryDetails) => Effect.Effect<void>
+		readonly readReviewedDiffFiles: (input: { readonly repository: string; readonly number: number }) => Effect.Effect<readonly ReviewedDiffFileRow[], CacheError>
+		readonly writeReviewedDiffFiles: (input: ReviewedDiffFilesInput) => Effect.Effect<void>
 		readonly readWorkspacePreferences: (viewer: ViewerId) => Effect.Effect<WorkspacePreferences | null, CacheError>
 		readonly writeWorkspacePreferences: (preferences: WorkspacePreferencesInput | WorkspacePreferences) => Effect.Effect<void>
 		readonly prune: () => Effect.Effect<void>
@@ -865,6 +938,8 @@ export class CacheService extends Context.Service<
 			readRepositoryDetails: () => Effect.succeed(null),
 			readRepositoryDetailsFetchedAt: () => Effect.succeed(null),
 			writeRepositoryDetails: () => Effect.void,
+			readReviewedDiffFiles: () => Effect.succeed([]),
+			writeReviewedDiffFiles: () => Effect.void,
 			readWorkspacePreferences: () => Effect.succeed(null),
 			writeWorkspacePreferences: () => Effect.void,
 			prune: () => Effect.void,

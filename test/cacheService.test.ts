@@ -249,6 +249,59 @@ describe("CacheService", () => {
 		expect(cached?.recentRepositories).toEqual(["anomalyco/opencode", "Effect-TS/effect"])
 	})
 
+	test("persists reviewed diff files by pull request", async () => {
+		const filename = await tempCachePath()
+
+		await runCache(
+			filename,
+			Effect.gen(function* () {
+				const cache = yield* CacheService
+				yield* cache.writeReviewedDiffFiles({
+					repository: "owner/repo",
+					number: 10,
+					files: [{ path: "src/app.ts", fingerprint: "abc123", lineKeys: ["src/app.ts:RIGHT:12", "src/app.ts:RIGHT:13"] }],
+				})
+			}),
+		)
+
+		const cached = await runCache(
+			filename,
+			Effect.gen(function* () {
+				const cache = yield* CacheService
+				return yield* cache.readReviewedDiffFiles({ repository: "owner/repo", number: 10 })
+			}),
+		)
+
+		expect(cached).toEqual([{ path: "src/app.ts", fingerprint: "abc123", lineKeys: ["src/app.ts:RIGHT:12", "src/app.ts:RIGHT:13"] }])
+	})
+
+	test("replaces reviewed diff files for a pull request", async () => {
+		const filename = await tempCachePath()
+
+		await runCache(
+			filename,
+			Effect.gen(function* () {
+				const cache = yield* CacheService
+				yield* cache.writeReviewedDiffFiles({
+					repository: "owner/repo",
+					number: 10,
+					files: [
+						{ path: "src/a.ts", fingerprint: "old", lineKeys: ["src/a.ts:RIGHT:1"] },
+						{ path: "src/b.ts", fingerprint: "old", lineKeys: ["src/b.ts:RIGHT:1"] },
+					],
+				})
+				yield* cache.writeReviewedDiffFiles({
+					repository: "owner/repo",
+					number: 10,
+					files: [{ path: "src/a.ts", fingerprint: "new", lineKeys: ["src/a.ts:RIGHT:2"] }],
+				})
+				return yield* cache.readReviewedDiffFiles({ repository: "owner/repo", number: 10 })
+			}),
+		).then((cached) => {
+			expect(cached).toEqual([{ path: "src/a.ts", fingerprint: "new", lineKeys: ["src/a.ts:RIGHT:2"] }])
+		})
+	})
+
 	test("persists issue queue order and revives dates", async () => {
 		const filename = await tempCachePath()
 		const issueView: IssueView = { _tag: "Queue", mode: "authored", repository: null }

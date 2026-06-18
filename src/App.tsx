@@ -115,9 +115,11 @@ import {
 	listPullRequestReviewCommentsAtom,
 	pullRequestDiffAtom,
 	pullRequestDiffCacheAtom,
+	readReviewedDiffFilesAtom,
 	reviewedDiffLinesAtom,
 	selectedDiffKeyAtom,
 	selectedDiffStateAtom,
+	writeReviewedDiffFilesAtom,
 } from "./ui/diff/atoms.js"
 import {
 	diffCommentRangeContains,
@@ -138,6 +140,7 @@ import { insertText, type CommentEditorValue } from "./ui/commentEditor.js"
 import {
 	buildStackedDiffFiles,
 	diffAnchorOnSide,
+	diffFileFingerprint,
 	diffCommentAnchorLabel,
 	diffCommentLocationKey,
 	getStackedDiffCommentAnchors,
@@ -420,6 +423,8 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 	const removeIssueLabel = useAtomSet(removeIssueLabelAtom, { mode: "promise" })
 	const toggleDraftStatus = useAtomSet(toggleDraftAtom, { mode: "promise" })
 	const listPullRequestReviewComments = useAtomSet(listPullRequestReviewCommentsAtom, { mode: "promise" })
+	const readReviewedDiffFiles = useAtomSet(readReviewedDiffFilesAtom, { mode: "promise" })
+	const writeReviewedDiffFiles = useAtomSet(writeReviewedDiffFilesAtom, { mode: "promise" })
 	const listPullRequestComments = useAtomSet(listPullRequestCommentsAtom, { mode: "promise" })
 	const listIssueComments = useAtomSet(listIssueCommentsAtom, { mode: "promise" })
 	const readWorkspacePreferences = useAtomSet(readWorkspacePreferencesAtom, { mode: "promise" })
@@ -466,6 +471,8 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 	const issueListScrollPersistedRef = useRef(0)
 	const suppressNextDiffCommentScrollRef = useRef(false)
 	const pendingReviewedFileJumpRef = useRef<number | null>(null)
+	const reviewedDiffHydratedKeysRef = useRef<Set<string>>(new Set())
+	const reviewedDiffDirtyKeysRef = useRef<Set<string>>(new Set())
 	const headerFooterWidth = Math.max(24, contentWidth - 2)
 
 	const flashNotice = useFlashNotice()
@@ -691,6 +698,21 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 		[fullStackedDiffFiles, effectiveDiffRenderView, diffWrapMode, contentWidth],
 	)
 	const selectedReviewedDiffLines = selectedDiffKey ? (reviewedDiffLines[selectedDiffKey] ?? {}) : {}
+	const currentDiffFileFingerprints = useMemo(() => new Map(readyDiffFiles.map((file) => [file.name, diffFileFingerprint(file)] as const)), [readyDiffFiles])
+	const currentDiffLineKeysByFile = useMemo(() => {
+		const byFile = new Map<string, Set<string>>()
+		for (const anchor of allDiffCommentAnchors) {
+			const file = readyDiffFiles[anchor.fileIndex]
+			if (!file) continue
+			let keys = byFile.get(file.name)
+			if (!keys) {
+				keys = new Set<string>()
+				byFile.set(file.name, keys)
+			}
+			keys.add(diffCommentLocationKey(anchor))
+		}
+		return byFile
+	}, [allDiffCommentAnchors, readyDiffFiles])
 	const reviewedDiffFileStats = useMemo(() => {
 		const stats: Record<number, { readonly reviewed: number; readonly total: number }> = {}
 		for (const stackedFile of fullStackedDiffFiles) {
@@ -1119,6 +1141,57 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 	// row — reads as a jump.
 	useScrollPersistence(prListScrollRef, prListScrollPersistedRef, activeWorkspaceSurface === "pullRequests" && !detailFullView && !diffFullView && !commentsViewActive)
 	useScrollPersistence(issueListScrollRef, issueListScrollPersistedRef, activeWorkspaceSurface === "issues" && !detailFullView && !diffFullView && !commentsViewActive)
+
+	useEffect(() => {
+		if (!selectedPullRequest || !selectedDiffKey || selectedDiffState?._tag !== "Ready") return
+		const hydrateKey = `${selectedDiffKey}:${readyDiffFiles.map((file) => `${file.name}:${diffFileFingerprint(file)}`).join("|")}`
+		reviewedDiffDirtyKeysRef.current.delete(selectedDiffKey)
+		void readReviewedDiffFiles({ repository: selectedPullRequest.repository, number: selectedPullRequest.number })
+			.then((files) => {
+				reviewedDiffHydratedKeysRef.current.add(hydrateKey)
+				if (reviewedDiffDirtyKeysRef.current.has(selectedDiffKey)) return
+				const nextForDiff: Record<string, true> = {}
+				for (const file of files) {
+					if (currentDiffFileFingerprints.get(file.path) !== file.fingerprint) continue
+					const currentLineKeys = currentDiffLineKeysByFile.get(file.path)
+					if (!currentLineKeys) continue
+					for (const lineKey of file.lineKeys) {
+						if (currentLineKeys.has(lineKey)) nextForDiff[lineKey] = true
+					}
+				}
+				setReviewedDiffLines((current) => {
+					const next = { ...current }
+					if (Object.keys(nextForDiff).length === 0) delete next[selectedDiffKey]
+					else next[selectedDiffKey] = nextForDiff
+					return next
+				})
+			})
+			.catch(() => {
+				reviewedDiffHydratedKeysRef.current.add(hydrateKey)
+			})
+	}, [
+		currentDiffFileFingerprints,
+		currentDiffLineKeysByFile,
+		readReviewedDiffFiles,
+		readyDiffFiles,
+		selectedDiffKey,
+		selectedDiffState?._tag,
+		selectedPullRequest,
+		setReviewedDiffLines,
+	])
+
+	useEffect(() => {
+		if (!selectedPullRequest || !selectedDiffKey || selectedDiffState?._tag !== "Ready") return
+		const hydrateKey = `${selectedDiffKey}:${readyDiffFiles.map((file) => `${file.name}:${diffFileFingerprint(file)}`).join("|")}`
+		if (!reviewedDiffHydratedKeysRef.current.has(hydrateKey)) return
+		const files = readyDiffFiles.flatMap((file) => {
+			const currentLineKeys = currentDiffLineKeysByFile.get(file.name)
+			if (!currentLineKeys) return []
+			const lineKeys = [...currentLineKeys].filter((lineKey) => selectedReviewedDiffLines[lineKey])
+			return lineKeys.length > 0 ? [{ path: file.name, fingerprint: diffFileFingerprint(file), lineKeys }] : []
+		})
+		void writeReviewedDiffFiles({ repository: selectedPullRequest.repository, number: selectedPullRequest.number, files }).catch(() => {})
+	}, [currentDiffLineKeysByFile, readyDiffFiles, selectedDiffKey, selectedDiffState?._tag, selectedPullRequest, selectedReviewedDiffLines, writeReviewedDiffFiles])
 
 	useEffect(() => {
 		setDiffFileIndex(0)
@@ -1746,6 +1819,7 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 
 	const updateReviewedDiffLines = (transform: (current: Record<string, true>) => Record<string, true>) => {
 		if (!selectedDiffKey) return
+		reviewedDiffDirtyKeysRef.current.add(selectedDiffKey)
 		setReviewedDiffLines((current) => {
 			const nextForDiff = transform(current[selectedDiffKey] ?? {})
 			if (Object.keys(nextForDiff).length === 0) {
