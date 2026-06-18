@@ -307,10 +307,16 @@ export const displayedPullRequestsAtom = Atom.make((get) => {
 	return [...open, ...orphans].sort((left, right) => right.updatedAt.getTime() - left.updatedAt.getTime())
 })
 
+export const applyPullRequestViewClientFilter = (pullRequests: readonly PullRequestItem[], view: PullRequestView, username: string | null): readonly PullRequestItem[] => {
+	if (view._tag === "Queue" && view.mode === "authored" && username !== null) return pullRequests.filter((pullRequest) => pullRequest.author === username)
+	return pullRequests
+}
+
 export const filteredPullRequestsAtom = Atom.make((get) => {
-	// Scope filtering ("only mine") is enforced server-side via the view's
-	// search qualifier; no client-side author filter is needed here.
-	const pullRequests = get(displayedPullRequestsAtom)
+	const view = get(activeViewAtom)
+	const usernameResult = get(usernameAtom)
+	const username = AsyncResult.isSuccess(usernameResult) ? usernameResult.value : null
+	const pullRequests = applyPullRequestViewClientFilter(get(displayedPullRequestsAtom), view, username)
 	const query = get(effectiveFilterQueryAtom)
 	if (query.length === 0) return pullRequests
 	return pullRequests
