@@ -54,4 +54,34 @@ describe("CodexExplainer", () => {
 		expect(prompt).toContain("- src/App.tsx")
 		expect(prompt).toContain("diff --git a/src/App.tsx b/src/App.tsx")
 	})
+
+	test("builds a question prompt for a selected diff range", () => {
+		const prompt = buildDiffExplanationPrompt({
+			kind: "question",
+			repository: "kitlangton/ghui",
+			number: 12,
+			title: "Ask about selected diff ranges",
+			url: "https://github.com/kitlangton/ghui/pull/12",
+			baseRefName: "main",
+			headRefName: "question-range",
+			question: "Proč se mění oba řádky?",
+			path: "src/App.tsx",
+			side: "RIGHT",
+			line: null,
+			selectedText: null,
+			startLine: 20,
+			endLine: 21,
+			lines: [
+				{ side: "RIGHT", kind: "addition", line: 20, text: "const first = true" },
+				{ side: "RIGHT", kind: "addition", line: 21, text: "const second = true" },
+			],
+			filePatch: "diff --git a/src/App.tsx b/src/App.tsx\n@@ -20,0 +20,2 @@\n+const first = true\n+const second = true",
+		})
+
+		expect(prompt).toContain("Line: 20-21")
+		expect(prompt).toContain("Vybrané diff řádky")
+		expect(prompt).toContain("R20 +const first = true")
+		expect(prompt).toContain("R21 +const second = true")
+		expect(prompt).toContain("Proč se mění oba řádky?")
+	})
 })

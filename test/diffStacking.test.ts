@@ -2,8 +2,10 @@ import { describe, expect, test } from "bun:test"
 import {
 	buildStackedDiffFiles,
 	diffAnchorOnSide,
+	diffCommentLocationKey,
 	getDiffCommentAnchors,
 	getStackedDiffCommentAnchors,
+	isReviewedDiffComplete,
 	minimizeWhitespaceDiffFiles,
 	minimizeWhitespacePatch,
 	nearestDiffAnchorForLocation,
@@ -56,6 +58,20 @@ describe("stacked diff helpers", () => {
 		expect(secondFileAnchor?.fileIndex).toBe(1)
 		expect(secondFileAnchor?.localRenderLine).toBe(1)
 		expect(secondFileAnchor?.renderLine).toBe(stacked[1]!.diffStartLine + 1)
+	})
+
+	test("detects a fully reviewed pull request from reviewed line keys", () => {
+		const files = splitPatchFiles(patch)
+		const anchors = getStackedDiffCommentAnchors(buildStackedDiffFiles(files, "unified", "none", 80), "unified", "none", 80)
+		const reviewed = Object.fromEntries(anchors.map((anchor) => [diffCommentLocationKey(anchor), true] as const))
+
+		expect(isReviewedDiffComplete(files, reviewed)).toBe(true)
+
+		const omittedKey = Object.keys(reviewed)[0]!
+		const partial = { ...reviewed }
+		delete partial[omittedKey]
+
+		expect(isReviewedDiffComplete(files, partial)).toBe(false)
 	})
 
 	test("keeps separate visual and color lines for wrapped unified diffs", () => {

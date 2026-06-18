@@ -277,7 +277,7 @@ export const PullRequestDiffPane = ({
 			</scrollbox>
 			{reviewedMarkers.map((marker) => (
 				<box key={marker.key} position="absolute" top={marker.top} left={0} width={2} height={1} zIndex={11}>
-					<text fg={colors.background} bg={colors.link} attributes={TextAttributes.BOLD}>
+					<text fg="#22c55e" attributes={TextAttributes.BOLD}>
 						✓
 					</text>
 				</box>

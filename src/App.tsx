@@ -147,12 +147,14 @@ import {
 	minimizeWhitespaceDiffFiles,
 	PullRequestDiffState,
 	pullRequestDiffKey,
+	reviewedDiffFileStatsForFiles,
 	safeDiffFileIndex,
 	scrollTopForVisibleLine,
 	splitPatchFiles,
 	stackedDiffFileIndexAtLine,
 	type StackedDiffCommentAnchor,
 	verticalDiffAnchor,
+	isReviewedDiffComplete,
 } from "./ui/diff.js"
 import {
 	DETAIL_BODY_SCROLL_LIMIT,
@@ -676,6 +678,7 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 	const selectedCommentsStatus: DetailCommentsStatus = selectedCommentKey ? (pullRequestCommentsLoaded[selectedCommentKey] ?? "idle") : "idle"
 	const selectedCommentCount = activeWorkspaceSurface === "issues" ? Math.max(selectedIssue?.commentCount ?? 0, selectedComments.length) : selectedComments.length
 	const selectedDiffState = useAtomValue(selectedDiffStateAtom)
+	const pullRequestDiffCache = useAtomValue(pullRequestDiffCacheAtom)
 	const effectiveDiffRenderView = contentWidth >= 100 ? diffRenderView : "unified"
 	const readyDiffFiles = useMemo(
 		() => (selectedDiffState?._tag === "Ready" ? (diffWhitespaceMode === "ignore" ? minimizeWhitespaceDiffFiles(selectedDiffState.files) : selectedDiffState.files) : []),
@@ -714,21 +717,25 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 		}
 		return byFile
 	}, [allDiffCommentAnchors, readyDiffFiles])
-	const reviewedDiffFileStats = useMemo(() => {
-		const stats: Record<number, { readonly reviewed: number; readonly total: number }> = {}
-		for (const stackedFile of fullStackedDiffFiles) {
-			const keys = new Set(allDiffCommentAnchors.filter((anchor) => anchor.fileIndex === stackedFile.index).map(diffCommentLocationKey))
-			stats[stackedFile.index] = {
-				total: keys.size,
-				reviewed: [...keys].filter((key) => selectedReviewedDiffLines[key]).length,
-			}
-		}
-		return stats
-	}, [allDiffCommentAnchors, selectedReviewedDiffLines, fullStackedDiffFiles])
+	const reviewedDiffFileStats = useMemo(
+		() => reviewedDiffFileStatsForFiles(readyDiffFiles, selectedReviewedDiffLines, effectiveDiffRenderView, diffWrapMode, contentWidth),
+		[readyDiffFiles, selectedReviewedDiffLines, effectiveDiffRenderView, diffWrapMode, contentWidth],
+	)
 	const collapsedDiffFileIndexes = useMemo(
 		() => new Set(Object.entries(reviewedDiffFileStats).flatMap(([index, stats]) => (stats.total > 0 && stats.reviewed === stats.total ? [Number(index)] : []))),
 		[reviewedDiffFileStats],
 	)
+	const reviewedPullRequestKeys = useMemo(() => {
+		const keys = new Set<string>()
+		for (const pullRequest of pullRequests) {
+			const key = pullRequestDiffKey(pullRequest)
+			const diffState = pullRequestDiffCache[key]
+			if (diffState?._tag !== "Ready") continue
+			if (isReviewedDiffComplete(diffState.files, reviewedDiffLines[key] ?? {})) keys.add(key)
+		}
+		return keys
+	}, [pullRequests, pullRequestDiffCache, reviewedDiffLines])
+	const selectedPullRequestReviewed = selectedCommentKey ? reviewedPullRequestKeys.has(selectedCommentKey) : false
 	const stackedDiffFiles = useMemo(
 		() => buildStackedDiffFiles(readyDiffFiles, effectiveDiffRenderView, diffWrapMode, contentWidth, collapsedDiffFileIndexes),
 		[readyDiffFiles, effectiveDiffRenderView, diffWrapMode, contentWidth, collapsedDiffFileIndexes],
@@ -1251,7 +1258,6 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 		selectedDiffCommentAnchor,
 		selectedDiffCommentRangeAnchors,
 		diffCommentThreadAnchors,
-		reviewedDiffAnchors,
 		suppressNextDiffCommentScrollRef,
 		ensureDiffLineVisible: (line) => ensureDiffLineVisible(line),
 	})
@@ -1875,7 +1881,25 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 		flashNotice(`Codex tu není dostupný: ${actual} (${initialWorkingDirectory}); spusť ghui ve složce ${selectedPullRequest.repository}.`)
 		return false
 	}
+	const selectedCodexDiffRange = () => {
+		if (!selectedDiffCommentRange || selectedDiffCommentRangeAnchors.length === 0) return null
+		const startLine = Math.min(selectedDiffCommentRange.start.line, selectedDiffCommentRange.end.line)
+		const endLine = Math.max(selectedDiffCommentRange.start.line, selectedDiffCommentRange.end.line)
+		const path = selectedDiffCommentRange.end.path
+		const side = selectedDiffCommentRange.end.side
+		const file = readyDiffFiles.find((file) => file.name === path)
+		if (!file) return null
+		const lines = selectedDiffCommentRangeAnchors.map((anchor) => ({
+			side: anchor.side,
+			kind: anchor.kind,
+			line: anchor.line,
+			text: anchor.text,
+		}))
+		return { path, side, startLine, endLine, file, lines, anchors: selectedDiffCommentRangeAnchors }
+	}
 	const selectedDiffContextLabel = () => {
+		const range = selectedCodexDiffRange()
+		if (range) return `${range.path} ${range.side === "RIGHT" ? "+" : "-"}${range.startLine}${range.startLine === range.endLine ? "" : `-${range.endLine}`}`
 		const file = currentDiffFile()
 		if (!file) return "No diff selection"
 		if (selectedDiffNavigationTarget?._tag === "line") {
@@ -1908,7 +1932,17 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 			return
 		}
 		const lineAnchor = selectedDiffNavigationTarget?._tag === "line" ? selectedDiffNavigationTarget.anchor : null
-		const requestKey = [selectedPullRequest.url, "question", selectedPullRequest.headRefOid, file.name, lineAnchor?.side ?? "file", lineAnchor?.line ?? "file", question].join(":")
+		const range = selectedCodexDiffRange()
+		const requestKey = [
+			selectedPullRequest.url,
+			"question",
+			selectedPullRequest.headRefOid,
+			range?.path ?? file.name,
+			range
+				? `${range.side}:${range.startLine}-${range.endLine}:${range.anchors.map((anchor) => `${anchor.side}:${anchor.line}:${anchor.kind}:${anchor.text}`).join("|")}`
+				: `${lineAnchor?.side ?? "file"}:${lineAnchor?.line ?? "file"}`,
+			question,
+		].join(":")
 		closeActiveModal()
 		setCodexExplanationModal({
 			requestKey,
@@ -1929,11 +1963,18 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 			headRefName: selectedPullRequest.headRefName,
 			checkoutPath: currentCheckoutPath(),
 			question,
-			path: file.name,
-			side: lineAnchor?.side ?? null,
-			line: lineAnchor?.line ?? null,
-			selectedText: lineAnchor?.text ?? null,
-			filePatch: file.patch,
+			path: range?.path ?? file.name,
+			side: range?.side ?? lineAnchor?.side ?? null,
+			line: range ? null : (lineAnchor?.line ?? null),
+			selectedText: range ? null : (lineAnchor?.text ?? null),
+			...(range
+				? {
+						startLine: range.startLine,
+						endLine: range.endLine,
+						lines: range.lines,
+					}
+				: {}),
+			filePatch: range?.file.patch ?? file.patch,
 		})
 			.then((body) => {
 				setCodexExplanationModal((current) => (current.requestKey === requestKey ? { ...current, status: "ready", body } : current))
@@ -1950,75 +1991,65 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 		if (!selectedPullRequest) return
 		if (!ensureCodexCheckout()) return
 
-		const explanation =
-			selectedDiffCommentRange && selectedDiffCommentRangeAnchors.length > 0
-				? (() => {
-						const startLine = Math.min(selectedDiffCommentRange.start.line, selectedDiffCommentRange.end.line)
-						const endLine = Math.max(selectedDiffCommentRange.start.line, selectedDiffCommentRange.end.line)
-						const path = selectedDiffCommentRange.end.path
-						const side = selectedDiffCommentRange.end.side
-						const file = readyDiffFiles.find((file) => file.name === path)
-						if (!file) return null
-						return {
-							requestKey: [
-								selectedPullRequest.url,
-								"range",
-								path,
-								side,
-								startLine,
-								endLine,
-								selectedDiffCommentRangeAnchors.map((anchor) => `${anchor.side}:${anchor.line}:${anchor.kind}:${anchor.text}`).join("|"),
-							].join(":"),
-							subject: "range" as const,
-							title: "Explain diff range",
-							subtitle: `${path} ${side === "RIGHT" ? "+" : "-"}${startLine}${startLine === endLine ? "" : `-${endLine}`}`,
-							input: {
-								kind: "range" as const,
-								repository: selectedPullRequest.repository,
-								number: selectedPullRequest.number,
-								title: selectedPullRequest.title,
-								url: selectedPullRequest.url,
-								baseRefName: selectedPullRequest.baseRefName,
-								headRefName: selectedPullRequest.headRefName,
-								checkoutPath: currentCheckoutPath(),
-								path,
-								side,
-								startLine,
-								endLine,
-								lines: selectedDiffCommentRangeAnchors.map((anchor) => ({
-									side: anchor.side,
-									kind: anchor.kind,
-									line: anchor.line,
-									text: anchor.text,
-								})),
-								filePatch: file.patch,
-							},
-						}
-					})()
-				: (() => {
-						const file = currentDiffFile()
-						if (!file) return null
-						return {
-							requestKey: [selectedPullRequest.url, "file", selectedPullRequest.headRefOid, diffWhitespaceMode, file.name].join(":"),
-							subject: "whole" as const,
-							title: "Explain file diff",
-							subtitle: file.name,
-							input: {
-								kind: "whole" as const,
-								repository: selectedPullRequest.repository,
-								number: selectedPullRequest.number,
-								title: selectedPullRequest.title,
-								url: selectedPullRequest.url,
-								baseRefName: selectedPullRequest.baseRefName,
-								headRefName: selectedPullRequest.headRefName,
-								checkoutPath: currentCheckoutPath(),
-								files: [file].map((file) => ({
-									path: file.name,
-									patch: file.patch,
-								})),
-							},
-						}
-					})()
+		const explanation = selectedCodexDiffRange()
+			? (() => {
+					const range = selectedCodexDiffRange()
+					if (!range) return null
+					return {
+						requestKey: [
+							selectedPullRequest.url,
+							"range",
+							range.path,
+							range.side,
+							range.startLine,
+							range.endLine,
+							range.anchors.map((anchor) => `${anchor.side}:${anchor.line}:${anchor.kind}:${anchor.text}`).join("|"),
+						].join(":"),
+						subject: "range" as const,
+						title: "Explain diff range",
+						subtitle: `${range.path} ${range.side === "RIGHT" ? "+" : "-"}${range.startLine}${range.startLine === range.endLine ? "" : `-${range.endLine}`}`,
+						input: {
+							kind: "range" as const,
+							repository: selectedPullRequest.repository,
+							number: selectedPullRequest.number,
+							title: selectedPullRequest.title,
+							url: selectedPullRequest.url,
+							baseRefName: selectedPullRequest.baseRefName,
+							headRefName: selectedPullRequest.headRefName,
+							checkoutPath: currentCheckoutPath(),
+							path: range.path,
+							side: range.side,
+							startLine: range.startLine,
+							endLine: range.endLine,
+							lines: range.lines,
+							filePatch: range.file.patch,
+						},
+					}
+				})()
+			: (() => {
+					const file = currentDiffFile()
+					if (!file) return null
+					return {
+						requestKey: [selectedPullRequest.url, "file", selectedPullRequest.headRefOid, diffWhitespaceMode, file.name].join(":"),
+						subject: "whole" as const,
+						title: "Explain file diff",
+						subtitle: file.name,
+						input: {
+							kind: "whole" as const,
+							repository: selectedPullRequest.repository,
+							number: selectedPullRequest.number,
+							title: selectedPullRequest.title,
+							url: selectedPullRequest.url,
+							baseRefName: selectedPullRequest.baseRefName,
+							headRefName: selectedPullRequest.headRefName,
+							checkoutPath: currentCheckoutPath(),
+							files: [file].map((file) => ({
+								path: file.name,
+								patch: file.patch,
+							})),
+						},
+					}
+				})()
 
 		if (!explanation) {
 			flashNotice("No diff to explain")
@@ -2864,6 +2895,7 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 		hasMore: hasMorePullRequests,
 		isLoadingMore: isLoadingMorePullRequests,
 		loadingIndicator,
+		reviewedPullRequestKeys,
 		onSelectPullRequest: selectPullRequestByUrl,
 		showTitle: false,
 		showRepositoryGroups: selectedRepository === null,
@@ -3118,6 +3150,7 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 						contentWidth={fullscreenContentWidth}
 						paneWidth={contentWidth}
 						showChecks={false}
+						reviewed={selectedPullRequestReviewed}
 						comments={selectedComments}
 						commentsStatus={selectedCommentsStatus}
 					/>
@@ -3132,6 +3165,7 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 						contentWidth={fullscreenContentWidth}
 						paneWidth={contentWidth}
 						showChecks={isWideLayout}
+						reviewed={selectedPullRequestReviewed}
 						comments={selectedComments}
 						commentsStatus={selectedCommentsStatus}
 					/>
@@ -3146,6 +3180,7 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 								contentWidth={fullscreenContentWidth}
 								paneWidth={contentWidth}
 								showChecks
+								reviewed={selectedPullRequestReviewed}
 								comments={selectedComments}
 								commentsStatus={selectedCommentsStatus}
 							/>
@@ -3203,6 +3238,7 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 									contentWidth={rightContentWidth}
 									paneWidth={rightPaneWidth}
 									showChecks={false}
+									reviewed={selectedPullRequestReviewed}
 									comments={selectedComments}
 									commentsStatus={selectedCommentsStatus}
 								/>
@@ -3217,6 +3253,7 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 									contentWidth={rightContentWidth}
 									paneWidth={rightPaneWidth}
 									showChecks
+									reviewed={selectedPullRequestReviewed}
 									comments={selectedComments}
 									commentsStatus={selectedCommentsStatus}
 								/>
@@ -3229,6 +3266,7 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 									contentWidth={rightContentWidth}
 									paneWidth={rightPaneWidth}
 									showChecks
+									reviewed={selectedPullRequestReviewed}
 									comments={selectedComments}
 									commentsStatus={selectedCommentsStatus}
 								/>
@@ -3259,6 +3297,7 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 								contentWidth={fullscreenContentWidth}
 								paneWidth={contentWidth}
 								showChecks={false}
+								reviewed={selectedPullRequestReviewed}
 								comments={selectedComments}
 								commentsStatus={selectedCommentsStatus}
 							/>
@@ -3272,6 +3311,7 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 								pullRequest={selectedPullRequest}
 								contentWidth={fullscreenContentWidth}
 								paneWidth={contentWidth}
+								reviewed={selectedPullRequestReviewed}
 								comments={selectedComments}
 								commentsStatus={selectedCommentsStatus}
 							/>
@@ -3324,6 +3364,7 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 									contentWidth={fullscreenContentWidth}
 									paneWidth={contentWidth}
 									showChecks={false}
+									reviewed={selectedPullRequestReviewed}
 									comments={selectedComments}
 									commentsStatus={selectedCommentsStatus}
 								/>
@@ -3336,6 +3377,7 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 									pullRequest={selectedPullRequest}
 									contentWidth={fullscreenContentWidth}
 									paneWidth={contentWidth}
+									reviewed={selectedPullRequestReviewed}
 									comments={selectedComments}
 									commentsStatus={selectedCommentsStatus}
 								/>

@@ -2,6 +2,7 @@ import { TextAttributes } from "@opentui/core"
 import type { LoadStatus, PullRequestItem } from "../domain.js"
 import { daysOpen } from "../date.js"
 import { colors } from "./colors.js"
+import { pullRequestDiffKey } from "./diff.js"
 import { SelectableRow, useHoverState } from "./listSelection/SelectableRow.js"
 import { fitCell, MatchedCell, PlainLine, SectionTitle, TextLine } from "./primitives.js"
 import { pullRequestRowDisplay, repoColor, reviewIcon } from "./pullRequests.js"
@@ -109,6 +110,7 @@ const PullRequestRow = ({
 	numWidth,
 	ageColWidth,
 	filterText,
+	reviewed,
 	onSelect,
 	onHoverChange,
 }: {
@@ -119,6 +121,7 @@ const PullRequestRow = ({
 	numWidth: number
 	ageColWidth: number
 	filterText: string
+	reviewed: boolean
 	onSelect: () => void
 	onHoverChange: (hovered: boolean) => void
 }) => {
@@ -136,7 +139,9 @@ const PullRequestRow = ({
 				? pullRequest.headRefName
 				: `${pullRequest.headRefName} → ${pullRequest.baseRefName}`
 	const authorText = `@${pullRequest.author}`
-	const branchWidth = branchText ? Math.max(0, metaWidth - authorText.length - 1) : 0
+	const reviewedText = reviewed ? "  ✓ checked" : ""
+	const branchWidth = branchText ? Math.max(0, metaWidth - authorText.length - reviewedText.length - 1) : 0
+	const authorWidth = branchText ? authorText.length : Math.max(0, metaWidth - reviewedText.length)
 	const display = pullRequestRowDisplay(pullRequest, selected)
 
 	return (
@@ -159,11 +164,16 @@ const PullRequestRow = ({
 					</TextLine>
 					<TextLine width={contentWidth} fg={colors.muted} bg={rowBg}>
 						<span>{" ".repeat(metaIndentWidth)}</span>
-						<MatchedCell text={authorText} width={branchText ? authorText.length : metaWidth} query={filterText} />
+						<MatchedCell text={authorText} width={authorWidth} query={filterText} />
 						{branchText ? <span> </span> : null}
 						{branchText ? (
 							<span fg={colors.separator}>
 								<MatchedCell text={branchText} width={branchWidth} query={filterText} />
+							</span>
+						) : null}
+						{reviewed ? (
+							<span fg={colors.status.passing} attributes={TextAttributes.BOLD}>
+								{fitCell(reviewedText, reviewedText.length)}
 							</span>
 						) : null}
 					</TextLine>
@@ -184,6 +194,7 @@ export const PullRequestList = ({
 	hasMore,
 	isLoadingMore,
 	loadingIndicator,
+	reviewedPullRequestKeys,
 	onSelectPullRequest,
 	showTitle = true,
 	showRepositoryGroups = true,
@@ -198,6 +209,7 @@ export const PullRequestList = ({
 	hasMore: boolean
 	isLoadingMore: boolean
 	loadingIndicator: string
+	reviewedPullRequestKeys: ReadonlySet<string>
 	onSelectPullRequest: (url: string) => void
 	showTitle?: boolean
 	showRepositoryGroups?: boolean
@@ -235,6 +247,7 @@ export const PullRequestList = ({
 						numWidth={row.numberWidth}
 						ageColWidth={row.ageWidth}
 						filterText={filterText}
+						reviewed={reviewedPullRequestKeys.has(pullRequestDiffKey(row.pullRequest))}
 						onSelect={() => onSelectPullRequest(pullRequestUrl)}
 						onHoverChange={onHoverChange(pullRequestUrl)}
 					/>

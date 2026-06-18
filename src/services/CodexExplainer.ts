@@ -44,6 +44,9 @@ export interface QuestionDiffSelectionInput extends ExplainDiffBaseInput {
 	readonly side: "LEFT" | "RIGHT" | null
 	readonly line: number | null
 	readonly selectedText: string | null
+	readonly startLine?: number
+	readonly endLine?: number
+	readonly lines?: readonly CodexDiffLine[]
 	readonly filePatch: string
 }
 
@@ -111,7 +114,7 @@ const buildDiffQuestionPrompt = (input: QuestionDiffSelectionInput) => `Odpovíd
 Důležité podmínky:
 - Odpověz česky.
 - Máš dostupný lokální checkout jako pracovní adresář Codexu. Pokud potřebuješ širší kontext, můžeš číst relevantní soubory.
-- Primárně odpověz k vybranému souboru a řádku níže.
+- Primárně odpověz k vybranému souboru a vybranému řádku nebo rozsahu níže.
 - Buď stručný, praktický a explicitně řekni, pokud z diffu nebo checkoutu nejde něco určit.
 
 ${prMetadata(input)}
@@ -119,8 +122,9 @@ ${prMetadata(input)}
 Vybrané místo:
 - File: ${input.path}
 - Side: ${input.side ? sideLabel(input.side) : "file"}
-- Line: ${input.line ?? "file"}
+- Line: ${input.startLine !== undefined && input.endLine !== undefined ? `${input.startLine}-${input.endLine}` : (input.line ?? "file")}
 ${input.selectedText === null ? "" : `- Selected text: ${input.selectedText}`}
+${input.lines && input.lines.length > 0 ? `\nVybrané diff řádky:\n\`\`\`diff\n${input.lines.map((line) => `${line.side === "LEFT" ? "L" : "R"}${line.line} ${linePrefix(line)}${line.text}`).join("\n")}\n\`\`\`` : ""}
 
 Otázka:
 ${input.question}

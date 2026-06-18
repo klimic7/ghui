@@ -526,6 +526,7 @@ export const DetailHeader = ({
 	contentWidth,
 	paneWidth,
 	showChecks = false,
+	reviewed = false,
 	comments = [],
 	commentsStatus = "idle",
 }: {
@@ -533,6 +534,7 @@ export const DetailHeader = ({
 	contentWidth: number
 	paneWidth: number
 	showChecks?: boolean
+	reviewed?: boolean
 	comments?: readonly PullRequestComment[]
 	commentsStatus?: DetailCommentsStatus
 }) => {
@@ -543,9 +545,11 @@ export const DetailHeader = ({
 	const commentsText = commentsStatus === "ready" && comments.length > 0 ? commentCountText(comments.length) : null
 	const opened = formatRelativeDate(pullRequest.createdAt)
 	const target = pullRequest.baseRefName && pullRequest.baseRefName !== pullRequest.defaultBranchName ? ` → ${pullRequest.baseRefName}` : ""
-	const branchBudget = Math.max(0, contentWidth - statsText.length - target.length - 2)
+	const reviewedText = reviewed ? "✓ checked" : ""
+	const reviewedWidth = reviewedText.length > 0 ? reviewedText.length + 2 : 0
+	const branchBudget = Math.max(0, contentWidth - statsText.length - target.length - reviewedWidth - 2)
 	const branch = pullRequest.headRefName && branchBudget >= 4 ? `${trimCell(pullRequest.headRefName, branchBudget)}${target}` : ""
-	const diffGap = Math.max(2, contentWidth - branch.length - statsText.length)
+	const diffGap = Math.max(0, contentWidth - branch.length - reviewedWidth - statsText.length)
 
 	return (
 		<>
@@ -563,6 +567,12 @@ export const DetailHeader = ({
 				<TextLine>
 					{branch ? <span fg={colors.muted}>{branch}</span> : null}
 					<span fg={colors.muted}>{" ".repeat(diffGap)}</span>
+					{reviewed ? (
+						<span fg={colors.status.passing} attributes={TextAttributes.BOLD}>
+							{reviewedText}
+							{"  "}
+						</span>
+					) : null}
 					<DiffStats pullRequest={pullRequest} />
 				</TextLine>
 			</PaddedRow>
@@ -720,6 +730,7 @@ export const DetailsPane = ({
 	bodyLineLimit = bodyLines,
 	paneWidth = contentWidth + 2,
 	showChecks = false,
+	reviewed = false,
 	comments = [],
 	commentsStatus = "idle",
 	placeholderContent,
@@ -734,6 +745,7 @@ export const DetailsPane = ({
 	bodyLineLimit?: number
 	paneWidth?: number
 	showChecks?: boolean
+	reviewed?: boolean
 	comments?: readonly PullRequestComment[]
 	commentsStatus?: DetailCommentsStatus
 	placeholderContent: DetailPlaceholderContent
@@ -748,7 +760,15 @@ export const DetailsPane = ({
 		<box flexDirection="column" height={contentHeight}>
 			{pullRequest ? (
 				<>
-					<DetailHeader pullRequest={pullRequest} contentWidth={contentWidth} paneWidth={paneWidth} showChecks={showChecks} comments={comments} commentsStatus={commentsStatus} />
+					<DetailHeader
+						pullRequest={pullRequest}
+						contentWidth={contentWidth}
+						paneWidth={paneWidth}
+						showChecks={showChecks}
+						reviewed={reviewed}
+						comments={comments}
+						commentsStatus={commentsStatus}
+					/>
 					<DetailBody
 						pullRequest={pullRequest}
 						contentWidth={contentWidth}

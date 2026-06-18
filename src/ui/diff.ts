@@ -361,6 +361,43 @@ export const buildStackedDiffFiles = (
 	})
 }
 
+export interface ReviewedDiffFileStat {
+	readonly reviewed: number
+	readonly total: number
+}
+
+export const reviewedDiffFileStatsForFiles = (
+	files: readonly DiffFilePatch[],
+	reviewedLineKeys: Readonly<Record<string, true>>,
+	view: DiffView,
+	wrapMode: DiffWrapMode,
+	width: number,
+): Record<number, ReviewedDiffFileStat> => {
+	const stackedFiles = buildStackedDiffFiles(files, view, wrapMode, width)
+	const anchors = getStackedDiffCommentAnchors(stackedFiles, view, wrapMode, width)
+	const stats: Record<number, ReviewedDiffFileStat> = {}
+	for (const stackedFile of stackedFiles) {
+		const keys = new Set(anchors.filter((anchor) => anchor.fileIndex === stackedFile.index).map(diffCommentLocationKey))
+		stats[stackedFile.index] = {
+			total: keys.size,
+			reviewed: [...keys].filter((key) => reviewedLineKeys[key]).length,
+		}
+	}
+	return stats
+}
+
+export const isReviewedDiffComplete = (
+	files: readonly DiffFilePatch[],
+	reviewedLineKeys: Readonly<Record<string, true>>,
+	view: DiffView = "unified",
+	wrapMode: DiffWrapMode = "none",
+	width = 120,
+) => {
+	const stats = reviewedDiffFileStatsForFiles(files, reviewedLineKeys, view, wrapMode, width)
+	const reviewableStats = Object.values(stats).filter((stat) => stat.total > 0)
+	return reviewableStats.length > 0 && reviewableStats.every((stat) => stat.reviewed === stat.total)
+}
+
 export const stackedDiffFileIndexAtLine = (stackedFiles: readonly StackedDiffFilePatch[], line: number) => {
 	let low = 0
 	let high = stackedFiles.length - 1
