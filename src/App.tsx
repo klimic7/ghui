@@ -138,6 +138,7 @@ import { useThemeModal } from "./ui/theme/useThemeModal.js"
 import { useMergeFlow } from "./ui/merge/useMergeFlow.js"
 import { insertText, type CommentEditorValue } from "./ui/commentEditor.js"
 import {
+	areReviewedDiffFileStatsComplete,
 	buildStackedDiffFiles,
 	diffAnchorOnSide,
 	diffFileFingerprint,
@@ -725,16 +726,19 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 		() => new Set(Object.entries(reviewedDiffFileStats).flatMap(([index, stats]) => (stats.total > 0 && stats.reviewed === stats.total ? [Number(index)] : []))),
 		[reviewedDiffFileStats],
 	)
+	const selectedDiffReviewed = useMemo(() => areReviewedDiffFileStatsComplete(reviewedDiffFileStats), [reviewedDiffFileStats])
 	const reviewedPullRequestKeys = useMemo(() => {
 		const keys = new Set<string>()
 		for (const pullRequest of pullRequests) {
 			const key = pullRequestDiffKey(pullRequest)
 			const diffState = pullRequestDiffCache[key]
 			if (diffState?._tag !== "Ready") continue
-			if (isReviewedDiffComplete(diffState.files, reviewedDiffLines[key] ?? {})) keys.add(key)
+			const files = diffWhitespaceMode === "ignore" ? minimizeWhitespaceDiffFiles(diffState.files) : diffState.files
+			if (isReviewedDiffComplete(files, reviewedDiffLines[key] ?? {})) keys.add(key)
 		}
+		if (selectedDiffKey && selectedDiffReviewed) keys.add(selectedDiffKey)
 		return keys
-	}, [pullRequests, pullRequestDiffCache, reviewedDiffLines])
+	}, [pullRequests, pullRequestDiffCache, reviewedDiffLines, diffWhitespaceMode, selectedDiffKey, selectedDiffReviewed])
 	const selectedPullRequestReviewed = selectedCommentKey ? reviewedPullRequestKeys.has(selectedCommentKey) : false
 	const stackedDiffFiles = useMemo(
 		() => buildStackedDiffFiles(readyDiffFiles, effectiveDiffRenderView, diffWrapMode, contentWidth, collapsedDiffFileIndexes),

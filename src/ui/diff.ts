@@ -386,6 +386,11 @@ export const reviewedDiffFileStatsForFiles = (
 	return stats
 }
 
+export const areReviewedDiffFileStatsComplete = (stats: Readonly<Record<number, ReviewedDiffFileStat>>) => {
+	const reviewableStats = Object.values(stats).filter((stat) => stat.total > 0)
+	return reviewableStats.length > 0 && reviewableStats.every((stat) => stat.reviewed === stat.total)
+}
+
 export const isReviewedDiffComplete = (
 	files: readonly DiffFilePatch[],
 	reviewedLineKeys: Readonly<Record<string, true>>,
@@ -394,8 +399,7 @@ export const isReviewedDiffComplete = (
 	width = 120,
 ) => {
 	const stats = reviewedDiffFileStatsForFiles(files, reviewedLineKeys, view, wrapMode, width)
-	const reviewableStats = Object.values(stats).filter((stat) => stat.total > 0)
-	return reviewableStats.length > 0 && reviewableStats.every((stat) => stat.reviewed === stat.total)
+	return areReviewedDiffFileStatsComplete(stats)
 }
 
 export const stackedDiffFileIndexAtLine = (stackedFiles: readonly StackedDiffFilePatch[], line: number) => {

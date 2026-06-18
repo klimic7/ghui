@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import {
+	areReviewedDiffFileStatsComplete,
 	buildStackedDiffFiles,
 	diffAnchorOnSide,
 	diffCommentLocationKey,
@@ -72,6 +73,21 @@ describe("stacked diff helpers", () => {
 		delete partial[omittedKey]
 
 		expect(isReviewedDiffComplete(files, partial)).toBe(false)
+	})
+
+	test("detects complete reviewed file stats", () => {
+		expect(
+			areReviewedDiffFileStatsComplete({
+				0: { reviewed: 2, total: 2 },
+				1: { reviewed: 1, total: 1 },
+			}),
+		).toBe(true)
+		expect(
+			areReviewedDiffFileStatsComplete({
+				0: { reviewed: 2, total: 2 },
+				1: { reviewed: 0, total: 1 },
+			}),
+		).toBe(false)
 	})
 
 	test("keeps separate visual and color lines for wrapped unified diffs", () => {

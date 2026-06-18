@@ -131,7 +131,8 @@ const PullRequestRow = ({
 	const rowWidth = reviewWidth + 1 + numberWidth + 1 + titleWidth + checkWidth + ageWidth
 	const fillerWidth = Math.max(0, contentWidth - rowWidth)
 	const metaIndentWidth = reviewWidth + 1
-	const metaWidth = Math.max(8, contentWidth - metaIndentWidth)
+	const reviewedWidth = checkWidth
+	const metaWidth = Math.max(8, contentWidth - metaIndentWidth - reviewedWidth)
 	const branchText =
 		pullRequest.headRefName === pullRequest.baseRefName
 			? null
@@ -139,9 +140,7 @@ const PullRequestRow = ({
 				? pullRequest.headRefName
 				: `${pullRequest.headRefName} → ${pullRequest.baseRefName}`
 	const authorText = `@${pullRequest.author}`
-	const reviewedText = reviewed ? "  ✓ checked" : ""
-	const branchWidth = branchText ? Math.max(0, metaWidth - authorText.length - reviewedText.length - 1) : 0
-	const authorWidth = branchText ? authorText.length : Math.max(0, metaWidth - reviewedText.length)
+	const branchWidth = branchText ? Math.max(0, metaWidth - authorText.length - 1) : 0
 	const display = pullRequestRowDisplay(pullRequest, selected)
 
 	return (
@@ -164,18 +163,16 @@ const PullRequestRow = ({
 					</TextLine>
 					<TextLine width={contentWidth} fg={colors.muted} bg={rowBg}>
 						<span>{" ".repeat(metaIndentWidth)}</span>
-						<MatchedCell text={authorText} width={authorWidth} query={filterText} />
+						<MatchedCell text={authorText} width={branchText ? authorText.length : metaWidth} query={filterText} />
 						{branchText ? <span> </span> : null}
 						{branchText ? (
 							<span fg={colors.separator}>
 								<MatchedCell text={branchText} width={branchWidth} query={filterText} />
 							</span>
 						) : null}
-						{reviewed ? (
-							<span fg={colors.status.passing} attributes={TextAttributes.BOLD}>
-								{fitCell(reviewedText, reviewedText.length)}
-							</span>
-						) : null}
+						<span fg={colors.status.passing} attributes={reviewed ? TextAttributes.BOLD : 0}>
+							{fitCell(reviewed ? "✓" : "", reviewedWidth, "right")}
+						</span>
 					</TextLine>
 				</>
 			)}
