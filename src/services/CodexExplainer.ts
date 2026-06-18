@@ -1,4 +1,5 @@
 import { Context, Effect, Layer } from "effect"
+import { initialWorkingDirectory } from "../workingDirectory.js"
 import { CommandRunner, type CommandError } from "./CommandRunner.js"
 
 export interface CodexDiffLine {
@@ -145,7 +146,7 @@ export class CodexExplainer extends Context.Service<
 			const command = yield* CommandRunner
 			const explainDiffSelection = Effect.fn("CodexExplainer.explainDiffSelection")(function* (input: ExplainDiffInput) {
 				const prompt = buildDiffExplanationPrompt(input)
-				const cwd = input.checkoutPath ?? process.cwd()
+				const cwd = input.checkoutPath ?? initialWorkingDirectory
 				const result = yield* command.run("codex", ["exec", "--skip-git-repo-check", "--cd", cwd, "--sandbox", "read-only", "--ephemeral", "--color", "never", "-"], {
 					stdin: prompt,
 					timeoutMs: 120_000,

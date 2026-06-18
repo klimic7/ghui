@@ -145,21 +145,21 @@ describe("CodexCommentImplementer", () => {
 		expect(recorder.some((call) => call.command === "codex")).toBe(false)
 	})
 
-	test("checks out the PR branch when only the repository checkout is available", async () => {
+	test("fails when the current branch is not the pull request branch", async () => {
 		const recorder: RecordedCall[] = []
-		const result = await runWith(
+		const error = await runWith(
 			CodexCommentImplementer.use((codex) => codex.implementReviewComment(reviewCommentInput())),
 			recorder,
 			{
 				currentBranch: "main",
 				remoteBranchAvailable: false,
 			},
-		)
+		).catch((error: unknown) => error as { readonly detail?: string })
 
-		expect(result.checkoutPath).toBe("/workspace/repo")
-		expect(result.pushRemote).toBe("origin")
-		expect(recorder.some((call) => call.command === "gh" && call.args.join(" ") === "pr checkout 42 --repo owner/repo")).toBe(true)
-		expect(recorder.filter((call) => call.command === "codex").every((call) => call.options?.cwd === "/workspace/repo")).toBe(true)
+		expect(error.detail).toContain("Current branch is main")
+		expect(error.detail).toContain("feature/review")
+		expect(recorder.some((call) => call.command === "gh" && call.args.join(" ") === "pr checkout 42 --repo owner/repo")).toBe(false)
+		expect(recorder.some((call) => call.command === "codex")).toBe(false)
 	})
 
 	test("pushes explicitly to the resolved PR head remote and branch", async () => {

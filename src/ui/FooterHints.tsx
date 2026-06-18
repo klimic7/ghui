@@ -73,7 +73,7 @@ const diffViewHints = (ctx: HintsContext): readonly HintItem[] => [
 	{ key: "enter", label: ctx.diffRangeActive ? "comment" : "open" },
 	{ key: "v", label: ctx.diffRangeActive ? "clear" : "range" },
 	{ key: "shift-e", label: "explain" },
-	{ key: "Q", label: "ask" },
+	{ key: "shift-q", label: "ask" },
 	{ key: "c", label: "checked" },
 	{ key: "w", label: "wrap" },
 	{ key: "[]", label: "files" },

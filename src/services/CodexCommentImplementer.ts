@@ -1,4 +1,5 @@
 import { Context, Effect, Layer } from "effect"
+import { initialWorkingDirectory } from "../workingDirectory.js"
 import { CommandError, CommandRunner } from "./CommandRunner.js"
 import { GitHubService, type GitHubError } from "./GitHubService.js"
 
@@ -138,13 +139,13 @@ export class CodexCommentImplementer extends Context.Service<
 
 			const currentCheckout = Effect.fn("CodexCommentImplementer.currentCheckout")(function* (input: ImplementReviewCommentInput) {
 				yield* progress(input, "Checking current checkout")
-				const checkoutPath = yield* gitTopLevel(process.cwd())
+				const checkoutPath = yield* gitTopLevel(initialWorkingDirectory)
 				if (!checkoutPath) {
 					return yield* new CommandError({
 						command: "git",
 						args: ["rev-parse", "--show-toplevel"],
 						detail: `Current directory is not a git checkout. To implement review comments, start ghui from the local checkout for ${input.repository}.`,
-						cause: process.cwd(),
+						cause: initialWorkingDirectory,
 					})
 				}
 				const remotes = yield* command.run("git", ["remote", "-v"], { cwd: checkoutPath, successExitCodes: [0, 128] })
@@ -173,8 +174,12 @@ export class CodexCommentImplementer extends Context.Service<
 				}
 				const branch = yield* command.run("git", ["branch", "--show-current"], { cwd: checkoutPath, successExitCodes: [0, 128] })
 				if (branch.exitCode !== 0 || branch.stdout.trim() !== input.headRefName) {
-					yield* progress(input, "Checking out PR branch")
-					yield* command.run("gh", ["pr", "checkout", String(input.number), "--repo", input.repository], { cwd: checkoutPath, timeoutMs: 120_000 })
+					return yield* new CommandError({
+						command: "git",
+						args: ["branch", "--show-current"],
+						detail: `Current branch is ${branch.stdout.trim() || "unknown"}, but PR #${input.number} uses ${input.headRefName}. Check out the PR branch before implementing review comments.`,
+						cause: branch.stdout,
+					})
 				}
 				yield* progress(input, "Resolving push remote")
 				const pushRemote = yield* findPushRemote(checkoutPath, input)

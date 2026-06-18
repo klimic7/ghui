@@ -114,7 +114,7 @@ export const appKeymap = App(
 		id: "app.quit-or-close-q",
 		title: "Quit / close modal",
 		keys: ["q"],
-		when: (s) => !s.textInputActive && !s.diffFullView,
+		when: (s) => !s.textInputActive,
 		run: (s) => s.handleQuitOrClose(),
 	},
 

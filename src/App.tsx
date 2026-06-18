@@ -234,6 +234,7 @@ import { commandRuntimeAtom } from "./commands/runtimeAtom.js"
 import { issueViewForPullRequestView } from "./viewSync.js"
 import { nextWorkspaceSurface, repositoryWorkspaceSurfaces, userWorkspaceSurfaces, type WorkspaceSurface } from "./workspaceSurfaces.js"
 import { detectedRepository, mockRepositoryCatalog, mockWorkspacePreferencesPath } from "./services/runtime.js"
+import { initialWorkingDirectory } from "./workingDirectory.js"
 
 interface DetailPlaceholderInput {
 	readonly status: LoadStatus
@@ -1866,7 +1867,7 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 
 	const currentDiffFileIndex = () => selectedDiffNavigationTarget?.fileIndex ?? diffFileIndex
 	const currentDiffFile = () => readyDiffFiles[currentDiffFileIndex()] ?? null
-	const currentCheckoutPath = () => process.cwd()
+	const currentCheckoutPath = () => initialWorkingDirectory
 	const ensureCodexCheckout = () => {
 		if (!selectedPullRequest) return false
 		if (detectedRepository === selectedPullRequest.repository) return true
