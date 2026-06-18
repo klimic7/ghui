@@ -2,7 +2,7 @@ import { Effect } from "effect"
 import * as Atom from "effect/unstable/reactivity/Atom"
 import type { DiffCommentSide, PullRequestReviewComment } from "../../domain.js"
 import { loadStoredDiffWhitespaceMode } from "../../themeStore.js"
-import type { ReviewedDiffFilesInput } from "../../services/CacheService.js"
+import type { ReviewedDiffFilesInput, ReviewedPullRequestInput } from "../../services/CacheService.js"
 import { CacheService } from "../../services/CacheService.js"
 import { GitHubService } from "../../services/GitHubService.js"
 import { githubRuntime } from "../../services/runtime.js"
@@ -39,6 +39,8 @@ export const readReviewedDiffFilesAtom = githubRuntime.fn<{ readonly repository:
 	CacheService.use((cache) => cache.readReviewedDiffFiles(input)),
 )
 export const writeReviewedDiffFilesAtom = githubRuntime.fn<ReviewedDiffFilesInput>()((input) => CacheService.use((cache) => cache.writeReviewedDiffFiles(input)))
+export const readReviewedPullRequestKeysAtom = githubRuntime.fn<void>()(() => CacheService.use((cache) => cache.readReviewedPullRequestKeys()))
+export const writeReviewedPullRequestAtom = githubRuntime.fn<ReviewedPullRequestInput>()((input) => CacheService.use((cache) => cache.writeReviewedPullRequest(input)))
 
 // === Derived selection atoms ===
 export const selectedDiffKeyAtom = Atom.make((get) => {

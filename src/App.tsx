@@ -116,10 +116,12 @@ import {
 	pullRequestDiffAtom,
 	pullRequestDiffCacheAtom,
 	readReviewedDiffFilesAtom,
+	readReviewedPullRequestKeysAtom,
 	reviewedDiffLinesAtom,
 	selectedDiffKeyAtom,
 	selectedDiffStateAtom,
 	writeReviewedDiffFilesAtom,
+	writeReviewedPullRequestAtom,
 } from "./ui/diff/atoms.js"
 import {
 	diffCommentRangeContains,
@@ -420,6 +422,7 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 	const retryProgress = useAtomValue(retryProgressAtom)
 	const [startupLoadComplete, setStartupLoadComplete] = useState(false)
 	const [homeCrumbHovered, setHomeCrumbHovered] = useState(false)
+	const [cachedReviewedPullRequestKeys, setCachedReviewedPullRequestKeys] = useState<ReadonlySet<string>>(() => new Set())
 	const usernameResult = useAtomValue(usernameAtom)
 	const addPullRequestLabel = useAtomSet(addPullRequestLabelAtom, { mode: "promise" })
 	const removePullRequestLabel = useAtomSet(removePullRequestLabelAtom, { mode: "promise" })
@@ -429,6 +432,8 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 	const listPullRequestReviewComments = useAtomSet(listPullRequestReviewCommentsAtom, { mode: "promise" })
 	const readReviewedDiffFiles = useAtomSet(readReviewedDiffFilesAtom, { mode: "promise" })
 	const writeReviewedDiffFiles = useAtomSet(writeReviewedDiffFilesAtom, { mode: "promise" })
+	const readReviewedPullRequestKeys = useAtomSet(readReviewedPullRequestKeysAtom, { mode: "promise" })
+	const writeReviewedPullRequest = useAtomSet(writeReviewedPullRequestAtom, { mode: "promise" })
 	const listPullRequestComments = useAtomSet(listPullRequestCommentsAtom, { mode: "promise" })
 	const listIssueComments = useAtomSet(listIssueCommentsAtom, { mode: "promise" })
 	const readWorkspacePreferences = useAtomSet(readWorkspacePreferencesAtom, { mode: "promise" })
@@ -477,6 +482,7 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 	const pendingReviewedFileJumpRef = useRef<number | null>(null)
 	const reviewedDiffHydratedKeysRef = useRef<Set<string>>(new Set())
 	const reviewedDiffDirtyKeysRef = useRef<Set<string>>(new Set())
+	const reviewedPullRequestKeysHydratedRef = useRef(false)
 	const headerFooterWidth = Math.max(24, contentWidth - 2)
 
 	const flashNotice = useFlashNotice()
@@ -728,17 +734,18 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 	)
 	const selectedDiffReviewed = useMemo(() => areReviewedDiffFileStatsComplete(reviewedDiffFileStats), [reviewedDiffFileStats])
 	const reviewedPullRequestKeys = useMemo(() => {
-		const keys = new Set<string>()
+		const keys = new Set(cachedReviewedPullRequestKeys)
 		for (const pullRequest of pullRequests) {
 			const key = pullRequestDiffKey(pullRequest)
 			const diffState = pullRequestDiffCache[key]
 			if (diffState?._tag !== "Ready") continue
 			const files = diffWhitespaceMode === "ignore" ? minimizeWhitespaceDiffFiles(diffState.files) : diffState.files
 			if (isReviewedDiffComplete(files, reviewedDiffLines[key] ?? {})) keys.add(key)
+			else keys.delete(key)
 		}
 		if (selectedDiffKey && selectedDiffReviewed) keys.add(selectedDiffKey)
 		return keys
-	}, [pullRequests, pullRequestDiffCache, reviewedDiffLines, diffWhitespaceMode, selectedDiffKey, selectedDiffReviewed])
+	}, [cachedReviewedPullRequestKeys, pullRequests, pullRequestDiffCache, reviewedDiffLines, diffWhitespaceMode, selectedDiffKey, selectedDiffReviewed])
 	const selectedPullRequestReviewed = selectedCommentKey ? reviewedPullRequestKeys.has(selectedCommentKey) : false
 	const stackedDiffFiles = useMemo(
 		() => buildStackedDiffFiles(readyDiffFiles, effectiveDiffRenderView, diffWrapMode, contentWidth, collapsedDiffFileIndexes),
@@ -1155,6 +1162,16 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 	useScrollPersistence(issueListScrollRef, issueListScrollPersistedRef, activeWorkspaceSurface === "issues" && !detailFullView && !diffFullView && !commentsViewActive)
 
 	useEffect(() => {
+		if (reviewedPullRequestKeysHydratedRef.current) return
+		reviewedPullRequestKeysHydratedRef.current = true
+		void readReviewedPullRequestKeys()
+			.then((keys) => {
+				setCachedReviewedPullRequestKeys(new Set(keys))
+			})
+			.catch(() => {})
+	}, [readReviewedPullRequestKeys])
+
+	useEffect(() => {
 		if (!selectedPullRequest || !selectedDiffKey || selectedDiffState?._tag !== "Ready") return
 		const hydrateKey = `${selectedDiffKey}:${readyDiffFiles.map((file) => `${file.name}:${diffFileFingerprint(file)}`).join("|")}`
 		reviewedDiffDirtyKeysRef.current.delete(selectedDiffKey)
@@ -1204,6 +1221,25 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 		})
 		void writeReviewedDiffFiles({ repository: selectedPullRequest.repository, number: selectedPullRequest.number, files }).catch(() => {})
 	}, [currentDiffLineKeysByFile, readyDiffFiles, selectedDiffKey, selectedDiffState?._tag, selectedPullRequest, selectedReviewedDiffLines, writeReviewedDiffFiles])
+
+	useEffect(() => {
+		if (!selectedPullRequest || !selectedDiffKey || selectedDiffState?._tag !== "Ready") return
+		const hydrateKey = `${selectedDiffKey}:${readyDiffFiles.map((file) => `${file.name}:${diffFileFingerprint(file)}`).join("|")}`
+		if (!reviewedDiffHydratedKeysRef.current.has(hydrateKey)) return
+		setCachedReviewedPullRequestKeys((current) => {
+			if (current.has(selectedDiffKey) === selectedDiffReviewed) return current
+			const next = new Set(current)
+			if (selectedDiffReviewed) next.add(selectedDiffKey)
+			else next.delete(selectedDiffKey)
+			return next
+		})
+		void writeReviewedPullRequest({
+			repository: selectedPullRequest.repository,
+			number: selectedPullRequest.number,
+			headRefOid: selectedPullRequest.headRefOid,
+			reviewed: selectedDiffReviewed,
+		}).catch(() => {})
+	}, [readyDiffFiles, selectedDiffKey, selectedDiffReviewed, selectedDiffState?._tag, selectedPullRequest, writeReviewedPullRequest])
 
 	useEffect(() => {
 		setDiffFileIndex(0)

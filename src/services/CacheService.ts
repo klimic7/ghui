@@ -52,6 +52,13 @@ export interface ReviewedDiffFilesInput {
 	readonly files: readonly ReviewedDiffFileRow[]
 }
 
+export interface ReviewedPullRequestInput {
+	readonly repository: string
+	readonly number: number
+	readonly headRefOid: string
+	readonly reviewed: boolean
+}
+
 export class CacheError extends Schema.TaggedErrorClass<CacheError>()("CacheError", {
 	operation: Schema.String,
 	cause: Schema.Defect,
@@ -193,8 +200,13 @@ interface ReviewedDiffFileQueryRow {
 	readonly line_keys_json: string
 }
 
+interface ReviewedPullRequestQueryRow {
+	readonly pr_key: string
+}
+
 export const pullRequestCacheKey = ({ repository, number }: PullRequestCacheKey) => `${repository}#${number}`
 export const issueCacheKey = ({ repository, number }: IssueCacheKey) => `${repository}#${number}`
+const reviewedPullRequestCacheKey = ({ repository, number, headRefOid }: Omit<ReviewedPullRequestInput, "reviewed">) => `${repository}#${number}:${headRefOid}`
 
 const parseDate = (value: string) => {
 	const date = new Date(value)
@@ -471,6 +483,18 @@ const cacheMigrations = {
 		)`
 		yield* sql`CREATE INDEX IF NOT EXISTS reviewed_diff_files_updated_at_idx ON reviewed_diff_files (updated_at)`
 	}),
+	"007_reviewed_pull_requests": Effect.gen(function* () {
+		const sql = yield* SqlClient.SqlClient
+		yield* sql`CREATE TABLE IF NOT EXISTS reviewed_pull_requests (
+			pr_key TEXT PRIMARY KEY,
+			repository TEXT NOT NULL,
+			number INTEGER NOT NULL,
+			head_ref_oid TEXT NOT NULL,
+			updated_at TEXT NOT NULL
+		)`
+		yield* sql`CREATE INDEX IF NOT EXISTS reviewed_pull_requests_repository_number_idx ON reviewed_pull_requests (repository, number)`
+		yield* sql`CREATE INDEX IF NOT EXISTS reviewed_pull_requests_updated_at_idx ON reviewed_pull_requests (updated_at)`
+	}),
 } satisfies Record<string, Effect.Effect<void, unknown, SqlClient.SqlClient>>
 
 const pullRequestRow = (pullRequest: PullRequestItem, updatedAt = new Date().toISOString()) => ({
@@ -558,8 +582,9 @@ const pruneSql = (sql: SqlClient.SqlClient) => {
 			AND issue_key NOT IN (
 				SELECT value FROM queue_snapshots, json_each(queue_snapshots.pr_keys_json)
 				WHERE view_key LIKE 'issue:%'
-			)`
+		)`
 		yield* sql`DELETE FROM reviewed_diff_files WHERE updated_at < ${cutoff}`
+		yield* sql`DELETE FROM reviewed_pull_requests WHERE updated_at < ${cutoff}`
 	}).pipe(Effect.catch(() => Effect.void))
 }
 
@@ -876,6 +901,28 @@ const liveCacheService = (sql: SqlClient.SqlClient) => {
 		yield* sql.withTransaction(write).pipe(Effect.catch(() => Effect.void))
 	})
 
+	const readReviewedPullRequestKeys = (): Effect.Effect<readonly string[], CacheError> =>
+		Effect.gen(function* () {
+			const rows = yield* sql<ReviewedPullRequestQueryRow>`SELECT pr_key FROM reviewed_pull_requests`
+			return rows.map((row) => row.pr_key)
+		}).pipe(Effect.mapError((cause) => toCacheError("readReviewedPullRequestKeys", cause)))
+
+	const writeReviewedPullRequest = Effect.fn("CacheService.writeReviewedPullRequest")(function* (input: ReviewedPullRequestInput) {
+		const updatedAt = new Date().toISOString()
+		const write = Effect.gen(function* () {
+			yield* sql`DELETE FROM reviewed_pull_requests WHERE repository = ${input.repository} AND number = ${input.number}`
+			if (!input.reviewed) return
+			yield* sql`INSERT INTO reviewed_pull_requests ${sql.insert({
+				pr_key: reviewedPullRequestCacheKey(input),
+				repository: input.repository,
+				number: input.number,
+				head_ref_oid: input.headRefOid,
+				updated_at: updatedAt,
+			})}`
+		})
+		yield* sql.withTransaction(write).pipe(Effect.catch(() => Effect.void))
+	})
+
 	const prune = Effect.fn("CacheService.prune")(function* () {
 		yield* pruneSql(sql)
 	})
@@ -895,6 +942,8 @@ const liveCacheService = (sql: SqlClient.SqlClient) => {
 		writeRepositoryDetails,
 		readReviewedDiffFiles,
 		writeReviewedDiffFiles,
+		readReviewedPullRequestKeys,
+		writeReviewedPullRequest,
 		readWorkspacePreferences,
 		writeWorkspacePreferences,
 		prune,
@@ -918,6 +967,8 @@ export class CacheService extends Context.Service<
 		readonly writeRepositoryDetails: (details: RepositoryDetails) => Effect.Effect<void>
 		readonly readReviewedDiffFiles: (input: { readonly repository: string; readonly number: number }) => Effect.Effect<readonly ReviewedDiffFileRow[], CacheError>
 		readonly writeReviewedDiffFiles: (input: ReviewedDiffFilesInput) => Effect.Effect<void>
+		readonly readReviewedPullRequestKeys: () => Effect.Effect<readonly string[], CacheError>
+		readonly writeReviewedPullRequest: (input: ReviewedPullRequestInput) => Effect.Effect<void>
 		readonly readWorkspacePreferences: (viewer: ViewerId) => Effect.Effect<WorkspacePreferences | null, CacheError>
 		readonly writeWorkspacePreferences: (preferences: WorkspacePreferencesInput | WorkspacePreferences) => Effect.Effect<void>
 		readonly prune: () => Effect.Effect<void>
@@ -940,6 +991,8 @@ export class CacheService extends Context.Service<
 			writeRepositoryDetails: () => Effect.void,
 			readReviewedDiffFiles: () => Effect.succeed([]),
 			writeReviewedDiffFiles: () => Effect.void,
+			readReviewedPullRequestKeys: () => Effect.succeed([]),
+			writeReviewedPullRequest: () => Effect.void,
 			readWorkspacePreferences: () => Effect.succeed(null),
 			writeWorkspacePreferences: () => Effect.void,
 			prune: () => Effect.void,

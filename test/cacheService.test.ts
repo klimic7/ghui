@@ -302,6 +302,58 @@ describe("CacheService", () => {
 		})
 	})
 
+	test("persists reviewed pull requests by head revision", async () => {
+		const filename = await tempCachePath()
+
+		await runCache(
+			filename,
+			Effect.gen(function* () {
+				const cache = yield* CacheService
+				yield* cache.writeReviewedPullRequest({
+					repository: "owner/repo",
+					number: 10,
+					headRefOid: "sha-one",
+					reviewed: true,
+				})
+				return yield* cache.readReviewedPullRequestKeys()
+			}),
+		).then((cached) => {
+			expect(cached).toEqual(["owner/repo#10:sha-one"])
+		})
+	})
+
+	test("clears reviewed pull request when unchecked or head revision changes", async () => {
+		const filename = await tempCachePath()
+
+		await runCache(
+			filename,
+			Effect.gen(function* () {
+				const cache = yield* CacheService
+				yield* cache.writeReviewedPullRequest({
+					repository: "owner/repo",
+					number: 10,
+					headRefOid: "sha-one",
+					reviewed: true,
+				})
+				yield* cache.writeReviewedPullRequest({
+					repository: "owner/repo",
+					number: 10,
+					headRefOid: "sha-two",
+					reviewed: true,
+				})
+				yield* cache.writeReviewedPullRequest({
+					repository: "owner/repo",
+					number: 10,
+					headRefOid: "sha-two",
+					reviewed: false,
+				})
+				return yield* cache.readReviewedPullRequestKeys()
+			}),
+		).then((cached) => {
+			expect(cached).toEqual([])
+		})
+	})
+
 	test("persists issue queue order and revives dates", async () => {
 		const filename = await tempCachePath()
 		const issueView: IssueView = { _tag: "Queue", mode: "authored", repository: null }
