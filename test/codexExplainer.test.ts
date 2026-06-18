@@ -19,14 +19,16 @@ describe("CodexExplainer", () => {
 				{ side: "RIGHT", kind: "addition", line: 10, text: "const selected = true" },
 				{ side: "RIGHT", kind: "context", line: 11, text: "return selected" },
 			],
+			filePatch: "diff --git a/src/App.tsx b/src/App.tsx\n@@ -10,2 +10,2 @@\n+const selected = true\n return selected",
 		})
 
 		expect(prompt).toContain("Odpověz česky")
-		expect(prompt).toContain("Vysvětluj pouze vybrané řádky")
-		expect(prompt).toContain("Nevyvozuj závěry ze zbytku diffu")
+		expect(prompt).toContain("lokální checkout")
+		expect(prompt).toContain("čti relevantní soubory")
 		expect(prompt).toContain("R10 +const selected = true")
 		expect(prompt).toContain("R11  return selected")
-		expect(prompt).not.toContain("diff --git")
+		expect(prompt).toContain("Patch vybraného souboru")
+		expect(prompt).toContain("diff --git a/src/App.tsx b/src/App.tsx")
 	})
 
 	test("builds a high-level prompt for the whole displayed diff", () => {
@@ -47,7 +49,8 @@ describe("CodexExplainer", () => {
 		})
 
 		expect(prompt).toContain("Odpověz česky")
-		expect(prompt).toContain("Dej high-level shrnutí celého diffu")
+		expect(prompt).toContain("lokální checkout")
+		expect(prompt).toContain("Dej high-level shrnutí zobrazeného diffu")
 		expect(prompt).toContain("- src/App.tsx")
 		expect(prompt).toContain("diff --git a/src/App.tsx b/src/App.tsx")
 	})

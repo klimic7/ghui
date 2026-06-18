@@ -30,6 +30,13 @@ export interface BuildCodexExplanationModalCtxInput {
 	readonly scrollCodexExplanation: (delta: number) => void
 }
 
+export interface BuildCodexQuestionModalCtxInput {
+	readonly closeActiveModal: () => void
+	readonly submitCodexQuestion: () => void
+	readonly clearCodexQuestion: () => void
+	readonly deleteCodexQuestionWord: () => void
+}
+
 export interface BuildCommentImplementationModalCtxInput {
 	readonly halfPage: number
 	readonly closeActiveModal: () => void
@@ -63,6 +70,7 @@ export interface BuildOpenRepositoryModalCtxInput {
 export interface BuildAppCtxFlags {
 	readonly closeModalActive: boolean
 	readonly codexExplanationModalActive: boolean
+	readonly codexQuestionModalActive: boolean
 	readonly commentImplementationModalActive: boolean
 	readonly pullRequestStateModalActive: boolean
 	readonly mergeModalActive: boolean
@@ -87,6 +95,7 @@ export interface BuildAppCtxInput {
 	readonly flags: BuildAppCtxFlags
 	readonly closeModal: BuildCloseModalCtxInput
 	readonly codexExplanationModal: BuildCodexExplanationModalCtxInput
+	readonly codexQuestionModal: BuildCodexQuestionModalCtxInput
 	readonly commentImplementationModal: BuildCommentImplementationModalCtxInput
 	readonly pullRequestStateModal: BuildPullRequestStateModalCtxInput
 	readonly mergeModal: BuildMergeModalCtxInput
@@ -117,6 +126,12 @@ export const buildAppCtx = (input: BuildAppCtxInput): AppCtx => ({
 		closeModal: input.codexExplanationModal.closeActiveModal,
 		copy: input.codexExplanationModal.copyCodexExplanation,
 		scrollBy: input.codexExplanationModal.scrollCodexExplanation,
+	},
+	codexQuestionModal: {
+		closeModal: input.codexQuestionModal.closeActiveModal,
+		submit: input.codexQuestionModal.submitCodexQuestion,
+		clear: input.codexQuestionModal.clearCodexQuestion,
+		deleteWord: input.codexQuestionModal.deleteCodexQuestionWord,
 	},
 	commentImplementationModal: {
 		halfPage: input.commentImplementationModal.halfPage,

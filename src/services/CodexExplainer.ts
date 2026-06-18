@@ -15,6 +15,7 @@ export interface ExplainDiffBaseInput {
 	readonly url: string
 	readonly baseRefName: string
 	readonly headRefName: string
+	readonly checkoutPath?: string
 }
 
 export interface ExplainDiffSelectionInput extends ExplainDiffBaseInput {
@@ -24,6 +25,7 @@ export interface ExplainDiffSelectionInput extends ExplainDiffBaseInput {
 	readonly startLine: number
 	readonly endLine: number
 	readonly lines: readonly CodexDiffLine[]
+	readonly filePatch: string
 }
 
 export interface ExplainWholeDiffInput extends ExplainDiffBaseInput {
@@ -34,7 +36,17 @@ export interface ExplainWholeDiffInput extends ExplainDiffBaseInput {
 	}[]
 }
 
-export type ExplainDiffInput = ExplainDiffSelectionInput | ExplainWholeDiffInput
+export interface QuestionDiffSelectionInput extends ExplainDiffBaseInput {
+	readonly kind: "question"
+	readonly question: string
+	readonly path: string
+	readonly side: "LEFT" | "RIGHT" | null
+	readonly line: number | null
+	readonly selectedText: string | null
+	readonly filePatch: string
+}
+
+export type ExplainDiffInput = ExplainDiffSelectionInput | ExplainWholeDiffInput | QuestionDiffSelectionInput
 
 const linePrefix = (line: CodexDiffLine) => (line.kind === "addition" ? "+" : line.kind === "deletion" ? "-" : " ")
 const sideLabel = (side: "LEFT" | "RIGHT") => (side === "LEFT" ? "old/LEFT" : "new/RIGHT")
@@ -50,9 +62,9 @@ const buildDiffSelectionExplanationPrompt = (input: ExplainDiffSelectionInput) =
 
 Důležité podmínky:
 - Odpověz česky.
-- Vysvětluj pouze vybrané řádky uvedené níže.
-- Nevyvozuj závěry ze zbytku diffu. Ten jsi nedostal.
-- Pokud z těchto řádků není širší účel jasný, řekni, co jasné je a co jasné není.
+- Máš dostupný lokální checkout jako pracovní adresář Codexu. Pokud potřebuješ širší kontext, čti relevantní soubory v projektu.
+- Zaměř se na vybrané řádky, ale používej okolní soubor a projektový kontext, aby vysvětlení nebylo omezené jen na jeden řádek.
+- Pokud ani z checkoutu nejde širší účel určit, řekni konkrétně, co chybí.
 - Buď stručný a praktický. Zmiň chování, pravděpodobný důvod a review rizika.
 
 ${prMetadata(input)}
@@ -66,13 +78,19 @@ Pouze vybrané diff řádky:
 \`\`\`diff
 ${input.lines.map((line) => `${line.side === "LEFT" ? "L" : "R"}${line.line} ${linePrefix(line)}${line.text}`).join("\n")}
 \`\`\`
+
+Patch vybraného souboru:
+\`\`\`diff
+${input.filePatch}
+\`\`\`
 `
 
 const buildWholeDiffExplanationPrompt = (input: ExplainWholeDiffInput) => `Vysvětluješ celý zobrazený diff z GitHub pull requestu uvnitř terminálového UI.
 
 Důležité podmínky:
 - Odpověz česky.
-- Dej high-level shrnutí celého diffu.
+- Máš dostupný lokální checkout jako pracovní adresář Codexu. Pokud potřebuješ širší kontext, čti relevantní soubory v projektu.
+- Dej high-level shrnutí zobrazeného diffu.
 - Zaměř se na to, co se mění, proč to pravděpodobně existuje, a jaká jsou review rizika.
 - Buď stručný a praktický.
 
@@ -87,8 +105,33 @@ ${input.files.map((file) => file.patch).join("\n")}
 \`\`\`
 `
 
+const buildDiffQuestionPrompt = (input: QuestionDiffSelectionInput) => `Odpovídáš na uživatelskou otázku k vybranému místu v diffu GitHub pull requestu.
+
+Důležité podmínky:
+- Odpověz česky.
+- Máš dostupný lokální checkout jako pracovní adresář Codexu. Pokud potřebuješ širší kontext, můžeš číst relevantní soubory.
+- Primárně odpověz k vybranému souboru a řádku níže.
+- Buď stručný, praktický a explicitně řekni, pokud z diffu nebo checkoutu nejde něco určit.
+
+${prMetadata(input)}
+
+Vybrané místo:
+- File: ${input.path}
+- Side: ${input.side ? sideLabel(input.side) : "file"}
+- Line: ${input.line ?? "file"}
+${input.selectedText === null ? "" : `- Selected text: ${input.selectedText}`}
+
+Otázka:
+${input.question}
+
+Patch vybraného souboru:
+\`\`\`diff
+${input.filePatch}
+\`\`\`
+`
+
 export const buildDiffExplanationPrompt = (input: ExplainDiffInput) =>
-	input.kind === "range" ? buildDiffSelectionExplanationPrompt(input) : buildWholeDiffExplanationPrompt(input)
+	input.kind === "range" ? buildDiffSelectionExplanationPrompt(input) : input.kind === "question" ? buildDiffQuestionPrompt(input) : buildWholeDiffExplanationPrompt(input)
 
 export class CodexExplainer extends Context.Service<
 	CodexExplainer,
@@ -102,7 +145,8 @@ export class CodexExplainer extends Context.Service<
 			const command = yield* CommandRunner
 			const explainDiffSelection = Effect.fn("CodexExplainer.explainDiffSelection")(function* (input: ExplainDiffInput) {
 				const prompt = buildDiffExplanationPrompt(input)
-				const result = yield* command.run("codex", ["exec", "--skip-git-repo-check", "--cd", "/tmp", "--sandbox", "read-only", "--ephemeral", "--color", "never", "-"], {
+				const cwd = input.checkoutPath ?? process.cwd()
+				const result = yield* command.run("codex", ["exec", "--skip-git-repo-check", "--cd", cwd, "--sandbox", "read-only", "--ephemeral", "--color", "never", "-"], {
 					stdin: prompt,
 					timeoutMs: 120_000,
 				})

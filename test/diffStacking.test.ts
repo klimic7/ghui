@@ -40,6 +40,14 @@ describe("stacked diff helpers", () => {
 		expect(stacked[1]).toMatchObject({ index: 1, headerLine: firstHeight + 3, diffStartLine: firstHeight + 5 })
 	})
 
+	test("collapses reviewed file bodies while preserving file headers", () => {
+		const files = splitPatchFiles(patch)
+		const stacked = buildStackedDiffFiles(files, "unified", "none", 120, new Set([0]))
+
+		expect(stacked[0]).toMatchObject({ index: 0, headerLine: 0, diffStartLine: 2, diffHeight: 0 })
+		expect(stacked[1]).toMatchObject({ index: 1, headerLine: 3, diffStartLine: 5 })
+	})
+
 	test("maps local comment anchors into global stacked lines", () => {
 		const stacked = buildStackedDiffFiles(splitPatchFiles(patch), "unified", "none", 120)
 		const anchors = getStackedDiffCommentAnchors(stacked, "unified")

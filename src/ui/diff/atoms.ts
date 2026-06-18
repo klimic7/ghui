@@ -21,6 +21,7 @@ export const diffPreferredSideAtom = Atom.make<DiffCommentSide | null>(null)
 export const diffCommentRangeStartIndexAtom = Atom.make<number | null>(null)
 export const diffCommentThreadsAtom = Atom.make<Record<string, readonly PullRequestReviewComment[]>>({}).pipe(Atom.keepAlive)
 export const diffCommentsLoadedAtom = Atom.make<Record<string, "loading" | "ready">>({}).pipe(Atom.keepAlive)
+export const reviewedDiffLinesAtom = Atom.make<Record<string, Record<string, true>>>({}).pipe(Atom.keepAlive)
 export const pullRequestDiffCacheAtom = Atom.make<Record<string, PullRequestDiffState>>({}).pipe(Atom.keepAlive)
 
 // === Data-fetching atoms ===

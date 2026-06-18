@@ -1,4 +1,4 @@
-import type { DiffRenderable, MouseEvent, ScrollBoxRenderable } from "@opentui/core"
+import { TextAttributes, type DiffRenderable, type MouseEvent, type ScrollBoxRenderable } from "@opentui/core"
 import { useMemo, type Ref } from "react"
 import type { DiffCommentSide, PullRequestItem, PullRequestReviewComment } from "../domain.js"
 import { colors, lineNumberTextColor, type ThemeId } from "./colors.js"
@@ -56,6 +56,8 @@ const FileHeader = ({
 	index,
 	count,
 	width,
+	reviewSuffix = "",
+	reviewSuffixColor = colors.muted,
 	suffix = "",
 	suffixColor = colors.muted,
 }: {
@@ -63,19 +65,22 @@ const FileHeader = ({
 	index: number
 	count: number
 	width: number
+	reviewSuffix?: string
+	reviewSuffixColor?: string
 	suffix?: string
 	suffixColor?: string
 }) => {
 	const counter = `${index + 1}/${count}`
 	const stats = diffFileStats(file)
 	const statsText = diffFileStatsText(stats)
-	const nameWidth = Math.max(1, width - counter.length - statsText.length - suffix.length - 5)
+	const nameWidth = Math.max(1, width - counter.length - statsText.length - reviewSuffix.length - suffix.length - 5)
 	return (
 		<TextLine>
 			<span fg={colors.muted}>{counter} </span>
 			<span fg={colors.text}>{fitCell(file.name, nameWidth)}</span>
 			{statsText ? <span fg={colors.muted}> </span> : null}
 			<FileStats stats={stats} />
+			{reviewSuffix ? <span fg={reviewSuffixColor}>{reviewSuffix}</span> : null}
 			{suffix ? <span fg={suffixColor}>{suffix}</span> : null}
 		</TextLine>
 	)
@@ -97,6 +102,9 @@ export const PullRequestDiffPane = ({
 	selectedCommentAnchor,
 	selectedCommentLabel,
 	selectedCommentThread,
+	selectedFileIndex,
+	reviewedAnchors,
+	reviewedFileStats,
 	onSelectCommentLine,
 	themeId,
 	themeGeneration,
@@ -116,6 +124,9 @@ export const PullRequestDiffPane = ({
 	selectedCommentAnchor: StackedDiffCommentAnchor | null
 	selectedCommentLabel: string | null
 	selectedCommentThread: readonly PullRequestReviewComment[]
+	selectedFileIndex: number | null
+	reviewedAnchors: readonly StackedDiffCommentAnchor[]
+	reviewedFileStats: Readonly<Record<number, { readonly reviewed: number; readonly total: number }>>
 	onSelectCommentLine: (renderLine: number, side: DiffCommentSide | null) => void
 	themeId: ThemeId
 	themeGeneration: number
@@ -164,6 +175,7 @@ export const PullRequestDiffPane = ({
 
 	const hasSelectedCommentAnchor = selectedCommentAnchor !== null
 	const commentPeek = hasSelectedCommentAnchor && selectedCommentThread.length > 0 ? selectedCommentThread[selectedCommentThread.length - 1]! : null
+	const scrollBoxHeight = Math.max(1, height - 2 - (commentPeek ? 3 : 0))
 	const commentPeekMeta =
 		commentPeek && selectedCommentAnchor
 			? commentMetaSegments({
@@ -189,8 +201,21 @@ export const PullRequestDiffPane = ({
 		if (selectedCommentAnchor.fileIndex !== stackedFile?.index) return ""
 		return `  ${selectedCommentLabel ?? diffCommentAnchorLabel(selectedCommentAnchor)}`
 	}
+	const reviewSuffixFor = (stackedFile: StackedDiffFilePatch | undefined) => {
+		const stats = stackedFile ? reviewedFileStats[stackedFile.index] : undefined
+		if (!stats || stats.total === 0 || stats.reviewed === 0) return ""
+		return stats.reviewed === stats.total ? "  ✓ reviewed" : `  ${stats.reviewed}/${stats.total} checked`
+	}
+	const reviewSuffixColorFor = (stackedFile: StackedDiffFilePatch | undefined) => {
+		const stats = stackedFile ? reviewedFileStats[stackedFile.index] : undefined
+		return stats && stats.total > 0 && stats.reviewed === stats.total ? colors.status.passing : colors.status.pending
+	}
+	const fileHeaderBgFor = (stackedFile: StackedDiffFilePatch | undefined) => (selectedFileIndex === stackedFile?.index ? colors.selectedBg : colors.background)
 	const stickyCommentColor = selectedCommentAnchor?.side === "LEFT" ? colors.status.failing : colors.status.passing
 	const diffLineNumberFg = lineNumberTextColor(colors.diff.lineNumberBg, colors.text)
+	const reviewedMarkers = reviewedAnchors
+		.map((anchor) => ({ key: `${anchor.path}:${anchor.side}:${anchor.line}`, top: 2 + anchor.renderLine - stickyScrollTop }))
+		.filter((marker) => marker.top >= 4 && marker.top < 2 + scrollBoxHeight)
 	const handleDiffMouseDown = function (this: ScrollBoxRenderable, event: MouseEvent) {
 		if (event.button !== 0) return
 		const localY = event.y - this.viewport.y
@@ -210,48 +235,66 @@ export const PullRequestDiffPane = ({
 				{stackedFiles.map((stackedFile) => (
 					<box key={`${pullRequest.url}-${stackedFile.index}-${view}-${wrapMode}`} flexDirection="column" flexShrink={0}>
 						{stackedFile.index > 0 ? <Divider width={paneWidth} /> : null}
-						<PaddedRow>
-							<FileHeader file={stackedFile.file} index={stackedFile.index} count={readyFiles.length} width={paneWidth} />
+						<PaddedRow {...(selectedFileIndex === stackedFile.index ? { backgroundColor: colors.selectedBg } : {})}>
+							<FileHeader
+								file={stackedFile.file}
+								index={stackedFile.index}
+								count={readyFiles.length}
+								width={paneWidth}
+								reviewSuffix={reviewSuffixFor(stackedFile)}
+								reviewSuffixColor={reviewSuffixColorFor(stackedFile)}
+							/>
 						</PaddedRow>
 						<Divider width={paneWidth} />
-						<diff
-							ref={(diff: DiffRenderable | null) => setDiffRef(stackedFile.index, diff)}
-							diff={stackedFile.file.patch}
-							view={view}
-							syncScroll
-							filetype={stackedFile.file.filetype ?? "text"}
-							syntaxStyle={syntaxStyle}
-							fg={colors.text}
-							showLineNumbers
-							wrapMode={wrapMode}
-							addedBg={colors.diff.addedBg}
-							removedBg={colors.diff.removedBg}
-							contextBg={colors.diff.contextBg}
-							addedSignColor={colors.status.passing}
-							removedSignColor={colors.status.failing}
-							lineNumberFg={diffLineNumberFg}
-							lineNumberBg={colors.diff.lineNumberBg}
-							addedLineNumberBg={colors.diff.addedLineNumberBg}
-							removedLineNumberBg={colors.diff.removedLineNumberBg}
-							selectionBg={colors.selectedBg}
-							selectionFg={colors.selectedText}
-							height={stackedFile.diffHeight}
-							style={{ flexShrink: 0 }}
-						/>
+						{stackedFile.diffHeight > 0 ? (
+							<diff
+								ref={(diff: DiffRenderable | null) => setDiffRef(stackedFile.index, diff)}
+								diff={stackedFile.file.patch}
+								view={view}
+								syncScroll
+								filetype={stackedFile.file.filetype ?? "text"}
+								syntaxStyle={syntaxStyle}
+								fg={colors.text}
+								showLineNumbers
+								wrapMode={wrapMode}
+								addedBg={colors.diff.addedBg}
+								removedBg={colors.diff.removedBg}
+								contextBg={colors.diff.contextBg}
+								addedSignColor={colors.status.passing}
+								removedSignColor={colors.status.failing}
+								lineNumberFg={diffLineNumberFg}
+								lineNumberBg={colors.diff.lineNumberBg}
+								addedLineNumberBg={colors.diff.addedLineNumberBg}
+								removedLineNumberBg={colors.diff.removedLineNumberBg}
+								selectionBg={colors.selectedBg}
+								selectionFg={colors.selectedText}
+								height={stackedFile.diffHeight}
+								style={{ flexShrink: 0 }}
+							/>
+						) : null}
 					</box>
 				))}
 			</scrollbox>
+			{reviewedMarkers.map((marker) => (
+				<box key={marker.key} position="absolute" top={marker.top} left={0} width={2} height={1} zIndex={11}>
+					<text fg={colors.background} bg={colors.link} attributes={TextAttributes.BOLD}>
+						✓
+					</text>
+				</box>
+			))}
 			{stickyFile ? (
 				<box position="absolute" top={2} left={0} width={paneWidth} height={2} zIndex={10} flexDirection="column" backgroundColor={colors.background}>
 					{incomingFile ? (
 						<>
 							<Divider width={paneWidth} />
-							<PaddedRow backgroundColor={colors.background}>
+							<PaddedRow backgroundColor={fileHeaderBgFor(incomingFile)}>
 								<FileHeader
 									file={incomingFile.file}
 									index={incomingFile.index}
 									count={readyFiles.length}
 									width={paneWidth}
+									reviewSuffix={reviewSuffixFor(incomingFile)}
+									reviewSuffixColor={reviewSuffixColorFor(incomingFile)}
 									suffix={stickyCommentLabelFor(incomingFile)}
 									suffixColor={stickyCommentColor}
 								/>
@@ -259,12 +302,14 @@ export const PullRequestDiffPane = ({
 						</>
 					) : (
 						<>
-							<PaddedRow backgroundColor={colors.background}>
+							<PaddedRow backgroundColor={fileHeaderBgFor(stickyFile)}>
 								<FileHeader
 									file={stickyFile.file}
 									index={stickyFile.index}
 									count={readyFiles.length}
 									width={paneWidth}
+									reviewSuffix={reviewSuffixFor(stickyFile)}
+									reviewSuffixColor={reviewSuffixColorFor(stickyFile)}
 									suffix={stickyCommentLabelFor(stickyFile)}
 									suffixColor={stickyCommentColor}
 								/>

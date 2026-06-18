@@ -5,6 +5,7 @@
 export { ChangedFilesModal } from "./modals/ChangedFilesModal.js"
 export { CloseModal } from "./modals/CloseModal.js"
 export { CodexExplanationModal } from "./modals/CodexExplanationModal.js"
+export { CodexQuestionModal } from "./modals/CodexQuestionModal.js"
 export { CommentImplementationModal, commentImplementationModalBodyText } from "./modals/CommentImplementationModal.js"
 export { CommentModal } from "./modals/CommentModal.js"
 export { CommentThreadModal } from "./modals/CommentThreadModal.js"
@@ -24,6 +25,7 @@ export type {
 	ChangedFilesModalState,
 	CloseModalState,
 	CodexExplanationModalState,
+	CodexQuestionModalState,
 	CommentImplementationModalState,
 	CommandPaletteState,
 	CommentModalState,
@@ -44,6 +46,7 @@ export {
 	initialChangedFilesModalState,
 	initialCloseModalState,
 	initialCodexExplanationModalState,
+	initialCodexQuestionModalState,
 	initialCommentImplementationModalState,
 	initialCommandPaletteState,
 	initialCommentModalState,

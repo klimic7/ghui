@@ -115,6 +115,7 @@ import {
 	listPullRequestReviewCommentsAtom,
 	pullRequestDiffAtom,
 	pullRequestDiffCacheAtom,
+	reviewedDiffLinesAtom,
 	selectedDiffKeyAtom,
 	selectedDiffStateAtom,
 } from "./ui/diff/atoms.js"
@@ -172,6 +173,7 @@ import {
 	initialChangedFilesModalState,
 	initialCloseModalState,
 	initialCodexExplanationModalState,
+	initialCodexQuestionModalState,
 	initialCommandPaletteState,
 	initialCommentImplementationModalState,
 	initialCommentModalState,
@@ -189,6 +191,7 @@ import {
 	type ChangedFilesModalState,
 	type CloseModalState,
 	type CodexExplanationModalState,
+	type CodexQuestionModalState,
 	commentImplementationModalBodyText,
 	type CommandPaletteState,
 	type CommentImplementationModalState,
@@ -214,7 +217,7 @@ import { WorkspaceModals } from "./surfaces/WorkspaceModals.js"
 import { WorkspaceTabs, workspaceTabSeparatorColumns } from "./ui/WorkspaceTabs.js"
 import { getIssueDetailJunctionRows, issueListRowIndex, issueListVisualLineCount, IssueDetailPane, orderIssuesForDisplay } from "./ui/IssueList.js"
 import { parseIssueReferenceUrl } from "./ui/inlineSegments.js"
-import { singleLineText } from "./ui/singleLineInput.js"
+import { deleteLastWord, singleLineText } from "./ui/singleLineInput.js"
 import { SPINNER_FRAMES } from "./ui/spinner.js"
 import { useClampedIndex } from "./ui/useClampedIndex.js"
 import { usePasteHandler } from "./ui/usePasteHandler.js"
@@ -236,6 +239,10 @@ interface DetailPlaceholderInput {
 	readonly visibleCount: number
 	readonly filterText: string
 }
+
+type DiffNavigationTarget =
+	| { readonly _tag: "file"; readonly fileIndex: number; readonly renderLine: number }
+	| { readonly _tag: "line"; readonly fileIndex: number; readonly renderLine: number; readonly anchor: StackedDiffCommentAnchor }
 
 interface AppProps {
 	readonly systemThemeGeneration?: number
@@ -329,6 +336,7 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 	const [diffPreferredSide, setDiffPreferredSide] = useAtom(diffPreferredSideAtom)
 	const [diffCommentRangeStartIndex, setDiffCommentRangeStartIndex] = useAtom(diffCommentRangeStartIndexAtom)
 	const [diffCommentThreads, setDiffCommentThreads] = useAtom(diffCommentThreadsAtom)
+	const [reviewedDiffLines, setReviewedDiffLines] = useAtom(reviewedDiffLinesAtom)
 	const setDiffCommentsLoaded = useAtomSet(diffCommentsLoadedAtom)
 	const setPullRequestComments = useAtomSet(pullRequestCommentsAtom)
 	const setPullRequestCommentsLoaded = useAtomSet(pullRequestCommentsLoadedAtom)
@@ -344,6 +352,7 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 	const labelModalActive = Modal.$is("Label")(activeModal)
 	const closeModalActive = Modal.$is("Close")(activeModal)
 	const codexExplanationModalActive = Modal.$is("CodexExplanation")(activeModal)
+	const codexQuestionModalActive = Modal.$is("CodexQuestion")(activeModal)
 	const commentImplementationModalActive = Modal.$is("CommentImplementation")(activeModal)
 	const pullRequestStateModalActive = Modal.$is("PullRequestState")(activeModal)
 	const mergeModalActive = Modal.$is("Merge")(activeModal)
@@ -359,6 +368,7 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 	const labelModal: LabelModalState = labelModalActive ? activeModal : initialLabelModalState
 	const closeModal: CloseModalState = closeModalActive ? activeModal : initialCloseModalState
 	const codexExplanationModal: CodexExplanationModalState = codexExplanationModalActive ? activeModal : initialCodexExplanationModalState
+	const codexQuestionModal: CodexQuestionModalState = codexQuestionModalActive ? activeModal : initialCodexQuestionModalState
 	const commentImplementationModal: CommentImplementationModalState = commentImplementationModalActive ? activeModal : initialCommentImplementationModalState
 	const pullRequestStateModal: PullRequestStateModalState = pullRequestStateModalActive ? activeModal : initialPullRequestStateModalState
 	const mergeModal: MergeModalState = mergeModalActive ? activeModal : initialMergeModalState
@@ -384,6 +394,7 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 			})
 	const setLabelModal = makeModalSetter("Label")
 	const setCodexExplanationModal = makeModalSetter("CodexExplanation")
+	const setCodexQuestionModal = makeModalSetter("CodexQuestion")
 	const setCommentImplementationModal = makeModalSetter("CommentImplementation")
 	const setPullRequestStateModal = makeModalSetter("PullRequestState")
 	const setMergeModal = makeModalSetter("Merge")
@@ -454,6 +465,7 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 	const prListScrollPersistedRef = useRef(0)
 	const issueListScrollPersistedRef = useRef(0)
 	const suppressNextDiffCommentScrollRef = useRef(false)
+	const pendingReviewedFileJumpRef = useRef<number | null>(null)
 	const headerFooterWidth = Math.max(24, contentWidth - 2)
 
 	const flashNotice = useFlashNotice()
@@ -670,18 +682,66 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 			selectedDiffState?._tag === "Ready" ? PullRequestDiffState.Ready({ patch: readyDiffFiles.map((file) => file.patch).join("\n"), files: readyDiffFiles }) : selectedDiffState,
 		[selectedDiffState, readyDiffFiles],
 	)
-	const stackedDiffFiles = useMemo(
+	const fullStackedDiffFiles = useMemo(
 		() => buildStackedDiffFiles(readyDiffFiles, effectiveDiffRenderView, diffWrapMode, contentWidth),
 		[readyDiffFiles, effectiveDiffRenderView, diffWrapMode, contentWidth],
 	)
-	const diffCommentAnchors = useMemo(
-		() => (diffFullView ? getStackedDiffCommentAnchors(stackedDiffFiles, effectiveDiffRenderView, diffWrapMode, contentWidth) : []),
-		[diffFullView, stackedDiffFiles, effectiveDiffRenderView, diffWrapMode, contentWidth],
+	const allDiffCommentAnchors = useMemo(
+		() => getStackedDiffCommentAnchors(fullStackedDiffFiles, effectiveDiffRenderView, diffWrapMode, contentWidth),
+		[fullStackedDiffFiles, effectiveDiffRenderView, diffWrapMode, contentWidth],
 	)
-	const selectedDiffCommentAnchorIndex = Math.max(0, Math.min(diffCommentAnchorIndex, diffCommentAnchors.length - 1))
-	const selectedDiffCommentAnchor = diffCommentAnchors[selectedDiffCommentAnchorIndex] ?? null
+	const selectedReviewedDiffLines = selectedDiffKey ? (reviewedDiffLines[selectedDiffKey] ?? {}) : {}
+	const reviewedDiffFileStats = useMemo(() => {
+		const stats: Record<number, { readonly reviewed: number; readonly total: number }> = {}
+		for (const stackedFile of fullStackedDiffFiles) {
+			const keys = new Set(allDiffCommentAnchors.filter((anchor) => anchor.fileIndex === stackedFile.index).map(diffCommentLocationKey))
+			stats[stackedFile.index] = {
+				total: keys.size,
+				reviewed: [...keys].filter((key) => selectedReviewedDiffLines[key]).length,
+			}
+		}
+		return stats
+	}, [allDiffCommentAnchors, selectedReviewedDiffLines, fullStackedDiffFiles])
+	const collapsedDiffFileIndexes = useMemo(
+		() => new Set(Object.entries(reviewedDiffFileStats).flatMap(([index, stats]) => (stats.total > 0 && stats.reviewed === stats.total ? [Number(index)] : []))),
+		[reviewedDiffFileStats],
+	)
+	const stackedDiffFiles = useMemo(
+		() => buildStackedDiffFiles(readyDiffFiles, effectiveDiffRenderView, diffWrapMode, contentWidth, collapsedDiffFileIndexes),
+		[readyDiffFiles, effectiveDiffRenderView, diffWrapMode, contentWidth, collapsedDiffFileIndexes],
+	)
+	const diffCommentAnchors = useMemo(
+		() =>
+			diffFullView
+				? getStackedDiffCommentAnchors(stackedDiffFiles, effectiveDiffRenderView, diffWrapMode, contentWidth).filter((anchor) => !collapsedDiffFileIndexes.has(anchor.fileIndex))
+				: [],
+		[diffFullView, stackedDiffFiles, effectiveDiffRenderView, diffWrapMode, contentWidth, collapsedDiffFileIndexes],
+	)
+	const diffNavigationTargets = useMemo(() => {
+		if (!diffFullView) return [] as readonly DiffNavigationTarget[]
+		return stackedDiffFiles.flatMap((stackedFile) => [
+			{ _tag: "file" as const, fileIndex: stackedFile.index, renderLine: stackedFile.headerLine },
+			...diffCommentAnchors
+				.filter((anchor) => anchor.fileIndex === stackedFile.index)
+				.map((anchor) => ({ _tag: "line" as const, fileIndex: anchor.fileIndex, renderLine: anchor.renderLine, anchor })),
+		])
+	}, [diffFullView, stackedDiffFiles, diffCommentAnchors])
+	const reviewedDiffAnchors = useMemo(
+		() => diffCommentAnchors.filter((anchor) => selectedReviewedDiffLines[diffCommentLocationKey(anchor)]),
+		[diffCommentAnchors, selectedReviewedDiffLines],
+	)
+	const selectedDiffCommentAnchorIndex = Math.max(0, Math.min(diffCommentAnchorIndex, diffNavigationTargets.length - 1))
+	const selectedDiffNavigationTarget = diffNavigationTargets[selectedDiffCommentAnchorIndex] ?? null
+	const selectedDiffCommentAnchor = selectedDiffNavigationTarget?._tag === "line" ? selectedDiffNavigationTarget.anchor : null
+	const diffTargetIndexForAnchor = (anchor: StackedDiffCommentAnchor) => diffNavigationTargets.findIndex((target) => target._tag === "line" && target.anchor === anchor)
+	const diffTargetIndexForFile = (fileIndex: number) => diffNavigationTargets.findIndex((target) => target._tag === "file" && target.fileIndex === fileIndex)
 	const diffCommentRangeStartAnchor =
-		diffCommentRangeStartIndex === null ? null : (diffCommentAnchors[Math.max(0, Math.min(diffCommentRangeStartIndex, diffCommentAnchors.length - 1))] ?? null)
+		diffCommentRangeStartIndex === null
+			? null
+			: (() => {
+					const target = diffNavigationTargets[Math.max(0, Math.min(diffCommentRangeStartIndex, diffNavigationTargets.length - 1))]
+					return target?._tag === "line" ? target.anchor : null
+				})()
 	const selectedDiffCommentRange = useMemo(
 		() => diffCommentRangeSelection(diffCommentRangeStartAnchor, selectedDiffCommentAnchor),
 		[diffCommentRangeStartAnchor, selectedDiffCommentAnchor],
@@ -1079,19 +1139,20 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 
 	useEffect(() => {
 		setDiffCommentAnchorIndex((current) => {
-			if (diffCommentAnchors.length === 0) return 0
-			return Math.max(0, Math.min(current, diffCommentAnchors.length - 1))
+			if (diffNavigationTargets.length === 0) return 0
+			return Math.max(0, Math.min(current, diffNavigationTargets.length - 1))
 		})
 		setDiffCommentRangeStartIndex((current) => {
-			if (current === null || diffCommentAnchors.length === 0) return null
-			return Math.max(0, Math.min(current, diffCommentAnchors.length - 1))
+			if (current === null || diffNavigationTargets.length === 0) return null
+			const next = Math.max(0, Math.min(current, diffNavigationTargets.length - 1))
+			return diffNavigationTargets[next]?._tag === "line" ? next : null
 		})
-	}, [diffCommentAnchors.length])
+	}, [diffNavigationTargets])
 
 	useEffect(() => {
-		if (!diffFullView || !selectedDiffCommentAnchor) return
-		setDiffFileIndex((current) => (current === selectedDiffCommentAnchor.fileIndex ? current : selectedDiffCommentAnchor.fileIndex))
-	}, [diffFullView, selectedDiffCommentAnchor?.fileIndex])
+		if (!diffFullView || !selectedDiffNavigationTarget) return
+		setDiffFileIndex((current) => (current === selectedDiffNavigationTarget.fileIndex ? current : selectedDiffNavigationTarget.fileIndex))
+	}, [diffFullView, selectedDiffNavigationTarget?.fileIndex])
 
 	useDiffLocationPreservation({
 		diffFullView,
@@ -1101,7 +1162,11 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 		diffScrollRef,
 		wideBodyHeight,
 		suppressNextDiffCommentScrollRef,
-		setDiffCommentAnchorIndex,
+		setDiffCommentAnchorIndex: (index) => {
+			const anchor = diffCommentAnchors[index]
+			const targetIndex = anchor ? diffTargetIndexForAnchor(anchor) : -1
+			if (targetIndex >= 0) setDiffCommentAnchorIndex(targetIndex)
+		},
 		setDiffFileIndex,
 		syncDiffScrollState: () => syncDiffScrollState(),
 	})
@@ -1112,6 +1177,7 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 		selectedDiffCommentAnchor,
 		selectedDiffCommentRangeAnchors,
 		diffCommentThreadAnchors,
+		reviewedDiffAnchors,
 		suppressNextDiffCommentScrollRef,
 		ensureDiffLineVisible: (line) => ensureDiffLineVisible(line),
 	})
@@ -1463,6 +1529,16 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 		syncDiffScrollState()
 	}
 
+	useEffect(() => {
+		const targetFileIndex = pendingReviewedFileJumpRef.current
+		if (targetFileIndex === null) return
+		pendingReviewedFileJumpRef.current = null
+		const nextTargetIndex = diffTargetIndexForFile(targetFileIndex)
+		if (nextTargetIndex >= 0) setDiffCommentAnchorIndex(nextTargetIndex)
+		setDiffFileIndex(targetFileIndex)
+		scrollToDiffFile(targetFileIndex)
+	}, [stackedDiffFiles, diffNavigationTargets])
+
 	const syncDiffScrollState = () => {
 		const scrollTop = diffScrollRef.current?.scrollTop
 		if (scrollTop === undefined || stackedDiffFiles.length === 0) return
@@ -1500,10 +1576,8 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 		const nextIndex = safeDiffFileIndex(readyDiffFiles, index)
 		setDiffFileIndex(nextIndex)
 		setDiffCommentRangeStartIndex(null)
-		const targetSide = diffPreferredSide ?? selectedDiffCommentAnchor?.side
-		const nextAnchor =
-			diffCommentAnchors.find((anchor) => anchor.fileIndex === nextIndex && anchor.side === targetSide) ?? diffCommentAnchors.find((anchor) => anchor.fileIndex === nextIndex)
-		if (nextAnchor) setDiffCommentAnchorIndex(diffCommentAnchors.indexOf(nextAnchor))
+		const nextTargetIndex = diffTargetIndexForFile(nextIndex)
+		if (nextTargetIndex >= 0) setDiffCommentAnchorIndex(nextTargetIndex)
 		scrollToDiffFile(nextIndex)
 	}
 
@@ -1531,36 +1605,65 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 		diffCommentRangeStartAnchor ? diffCommentAnchors.filter((anchor) => sameDiffCommentTarget(anchor, diffCommentRangeStartAnchor)) : diffCommentAnchors
 
 	const moveDiffCommentAnchor = (delta: number, options: { readonly preserveViewportRow?: boolean } = {}) => {
-		const anchors = navigableDiffCommentAnchors()
-		if (anchors.length === 0) return
-		const currentAnchor = selectedDiffCommentAnchor && anchors.includes(selectedDiffCommentAnchor) ? selectedDiffCommentAnchor : anchors[0]
-		const nextAnchor = verticalDiffAnchor(anchors, currentAnchor ?? null, delta, diffPreferredSide)
-		if (!nextAnchor) return
+		const currentTarget = selectedDiffNavigationTarget ?? diffNavigationTargets[0]
+		if (!currentTarget) return
+		const rangeAnchors = diffCommentRangeStartAnchor ? navigableDiffCommentAnchors() : null
+		const nextTarget = rangeAnchors
+			? (() => {
+					const currentAnchor = selectedDiffCommentAnchor && rangeAnchors.includes(selectedDiffCommentAnchor) ? selectedDiffCommentAnchor : rangeAnchors[0]
+					const nextAnchor = verticalDiffAnchor(rangeAnchors, currentAnchor ?? null, delta, diffPreferredSide)
+					const index = nextAnchor ? diffTargetIndexForAnchor(nextAnchor) : -1
+					return index >= 0 ? diffNavigationTargets[index] : null
+				})()
+			: (() => {
+					const rows = [...new Set(diffNavigationTargets.map((target) => target.renderLine))].sort((left, right) => left - right)
+					const currentRowIndex = Math.max(0, rows.indexOf(currentTarget.renderLine))
+					const targetSide = diffPreferredSide ?? (currentTarget._tag === "line" ? currentTarget.anchor.side : null)
+					const step = delta >= 0 ? 1 : -1
+					let rowIndex = Math.max(0, Math.min(rows.length - 1, currentRowIndex + delta))
+					while (rowIndex >= 0 && rowIndex < rows.length) {
+						const rowTargets = diffNavigationTargets.filter((target) => target.renderLine === rows[rowIndex])
+						const fileTarget = rowTargets.find((target) => target._tag === "file")
+						if (fileTarget) return fileTarget
+						const sideTarget = targetSide ? rowTargets.find((target) => target._tag === "line" && target.anchor.side === targetSide) : undefined
+						if (sideTarget) return sideTarget
+						if (!targetSide) return rowTargets[0] ?? null
+						rowIndex += step
+					}
+					return null
+				})()
+		if (!nextTarget) return
 		if (options.preserveViewportRow) {
 			const scroll = diffScrollRef.current
-			if (scroll && currentAnchor) {
+			if (scroll) {
 				const maxScreenOffset = Math.max(DIFF_STICKY_HEADER_LINES, scroll.viewport.height - 2)
-				const screenOffset = Math.max(DIFF_STICKY_HEADER_LINES, Math.min(maxScreenOffset, currentAnchor.renderLine - scroll.scrollTop))
+				const screenOffset = Math.max(DIFF_STICKY_HEADER_LINES, Math.min(maxScreenOffset, currentTarget.renderLine - scroll.scrollTop))
 				const maxScrollTop = Math.max(0, scroll.scrollHeight - scroll.viewport.height)
-				const nextTop = Math.max(0, Math.min(maxScrollTop, nextAnchor.renderLine - screenOffset))
+				const nextTop = Math.max(0, Math.min(maxScrollTop, nextTarget.renderLine - screenOffset))
 				suppressNextDiffCommentScrollRef.current = true
 				scroll.scrollTo({ x: 0, y: nextTop })
 				syncDiffScrollState()
 			}
 		}
-		setDiffCommentAnchorIndex(diffCommentAnchors.indexOf(nextAnchor))
+		setDiffCommentAnchorIndex(diffNavigationTargets.indexOf(nextTarget))
+		setDiffFileIndex(nextTarget.fileIndex)
+		if (!options.preserveViewportRow) ensureDiffLineVisible(nextTarget.renderLine)
 	}
 
 	const moveDiffCommentToBoundary = (boundary: "first" | "last") => {
-		const anchors = navigableDiffCommentAnchors()
-		const nextAnchor = boundary === "first" ? anchors[0] : anchors[anchors.length - 1]
-		if (!nextAnchor) return
-		setDiffCommentAnchorIndex(diffCommentAnchors.indexOf(nextAnchor))
-		setDiffFileIndex(nextAnchor.fileIndex)
+		const targets = diffCommentRangeStartAnchor
+			? navigableDiffCommentAnchors()
+					.map((anchor) => diffNavigationTargets[diffTargetIndexForAnchor(anchor)])
+					.filter((target): target is DiffNavigationTarget => target !== undefined)
+			: diffNavigationTargets
+		const nextTarget = boundary === "first" ? targets[0] : targets[targets.length - 1]
+		if (!nextTarget) return
+		setDiffCommentAnchorIndex(diffNavigationTargets.indexOf(nextTarget))
+		setDiffFileIndex(nextTarget.fileIndex)
 	}
 
 	const alignSelectedDiffCommentAnchor = (position: "top" | "center" | "bottom") => {
-		if (!selectedDiffCommentAnchor) return
+		if (!selectedDiffNavigationTarget) return
 		const scroll = diffScrollRef.current
 		if (!scroll) return
 		const viewportHeight = Math.max(1, scroll.viewport.height)
@@ -1571,7 +1674,7 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 					? Math.max(DIFF_STICKY_HEADER_LINES, Math.floor(viewportHeight / 2))
 					: Math.max(DIFF_STICKY_HEADER_LINES, viewportHeight - 2)
 		const maxScrollTop = Math.max(0, scroll.scrollHeight - viewportHeight)
-		const nextTop = Math.max(0, Math.min(maxScrollTop, selectedDiffCommentAnchor.renderLine - offset))
+		const nextTop = Math.max(0, Math.min(maxScrollTop, selectedDiffNavigationTarget.renderLine - offset))
 		scroll.scrollTo({ x: 0, y: nextTop })
 		syncDiffScrollState()
 	}
@@ -1582,7 +1685,8 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 		const nextAnchor = diffAnchorOnSide(diffCommentAnchors, selectedDiffCommentAnchor, side)
 		if (!nextAnchor) return
 		setDiffCommentRangeStartIndex(null)
-		setDiffCommentAnchorIndex(diffCommentAnchors.indexOf(nextAnchor))
+		const nextTargetIndex = diffTargetIndexForAnchor(nextAnchor)
+		if (nextTargetIndex >= 0) setDiffCommentAnchorIndex(nextTargetIndex)
 	}
 
 	const selectDiffCommentLine = (renderLine: number, side: DiffCommentSide | null) => {
@@ -1599,7 +1703,8 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 		if (diffCommentRangeStartAnchor && !sameDiffCommentTarget(diffCommentRangeStartAnchor, nextAnchor)) {
 			setDiffCommentRangeStartIndex(null)
 		}
-		setDiffCommentAnchorIndex(diffCommentAnchors.indexOf(nextAnchor))
+		const nextTargetIndex = diffTargetIndexForAnchor(nextAnchor)
+		if (nextTargetIndex >= 0) setDiffCommentAnchorIndex(nextTargetIndex)
 		setDiffFileIndex(nextAnchor.fileIndex)
 	}
 
@@ -1639,8 +1744,136 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 		setDiffCommentRangeStartIndex((current) => (current === null ? selectedDiffCommentAnchorIndex : null))
 	}
 
+	const updateReviewedDiffLines = (transform: (current: Record<string, true>) => Record<string, true>) => {
+		if (!selectedDiffKey) return
+		setReviewedDiffLines((current) => {
+			const nextForDiff = transform(current[selectedDiffKey] ?? {})
+			if (Object.keys(nextForDiff).length === 0) {
+				const next = { ...current }
+				delete next[selectedDiffKey]
+				return next
+			}
+			return { ...current, [selectedDiffKey]: nextForDiff }
+		})
+	}
+
+	const toggleReviewedDiffSelection = () => {
+		if (!selectedDiffKey || !selectedDiffNavigationTarget) return
+		if (selectedDiffNavigationTarget._tag === "line") {
+			const anchor = selectedDiffNavigationTarget.anchor
+			const lineKey = diffCommentLocationKey(anchor)
+			const fileKeys = [...new Set(allDiffCommentAnchors.filter((candidate) => candidate.fileIndex === anchor.fileIndex).map(diffCommentLocationKey))]
+			updateReviewedDiffLines((currentForDiff) => {
+				const nextForDiff = { ...currentForDiff }
+				if (nextForDiff[lineKey]) delete nextForDiff[lineKey]
+				else nextForDiff[lineKey] = true
+				const fileCompleted = fileKeys.length > 0 && fileKeys.every((key) => nextForDiff[key])
+				if (fileCompleted) {
+					const nextFileIndex = anchor.fileIndex + 1 < readyDiffFiles.length ? anchor.fileIndex + 1 : Math.max(0, anchor.fileIndex - 1)
+					pendingReviewedFileJumpRef.current = nextFileIndex
+				}
+				return nextForDiff
+			})
+			return
+		}
+
+		const fileKeys = [...new Set(allDiffCommentAnchors.filter((anchor) => anchor.fileIndex === selectedDiffNavigationTarget.fileIndex).map(diffCommentLocationKey))]
+		if (fileKeys.length === 0) return
+		updateReviewedDiffLines((currentForDiff) => {
+			const nextForDiff = { ...currentForDiff }
+			const allReviewed = fileKeys.every((key) => nextForDiff[key])
+			for (const key of fileKeys) {
+				if (allReviewed) delete nextForDiff[key]
+				else nextForDiff[key] = true
+			}
+			return nextForDiff
+		})
+	}
+
+	const currentDiffFileIndex = () => selectedDiffNavigationTarget?.fileIndex ?? diffFileIndex
+	const currentDiffFile = () => readyDiffFiles[currentDiffFileIndex()] ?? null
+	const currentCheckoutPath = () => process.cwd()
+	const ensureCodexCheckout = () => {
+		if (!selectedPullRequest) return false
+		if (detectedRepository === selectedPullRequest.repository) return true
+		const actual = detectedRepository ? `aktuální checkout je ${detectedRepository}` : "aktuální složka není GitHub git checkout"
+		flashNotice(`Codex tu není dostupný: ${actual}; spusť ghui ve složce ${selectedPullRequest.repository}.`)
+		return false
+	}
+	const selectedDiffContextLabel = () => {
+		const file = currentDiffFile()
+		if (!file) return "No diff selection"
+		if (selectedDiffNavigationTarget?._tag === "line") {
+			const anchor = selectedDiffNavigationTarget.anchor
+			return `${file.name} ${anchor.side === "RIGHT" ? "+" : "-"}${anchor.line}`
+		}
+		return file.name
+	}
+
+	const openCodexQuestionModal = () => {
+		const file = currentDiffFile()
+		if (!selectedPullRequest || !file) {
+			flashNotice("No diff selection")
+			return
+		}
+		if (!ensureCodexCheckout()) return
+		setCodexQuestionModal({ question: "", error: null, contextLabel: selectedDiffContextLabel() })
+	}
+
+	const submitCodexQuestion = () => {
+		if (!selectedPullRequest) return
+		const question = codexQuestionModal.question.trim()
+		if (question.length === 0) {
+			setCodexQuestionModal((current) => ({ ...current, error: "Ask a question first." }))
+			return
+		}
+		const file = currentDiffFile()
+		if (!file) {
+			setCodexQuestionModal((current) => ({ ...current, error: "No diff selection." }))
+			return
+		}
+		const lineAnchor = selectedDiffNavigationTarget?._tag === "line" ? selectedDiffNavigationTarget.anchor : null
+		const requestKey = [selectedPullRequest.url, "question", selectedPullRequest.headRefOid, file.name, lineAnchor?.side ?? "file", lineAnchor?.line ?? "file", question].join(":")
+		closeActiveModal()
+		setCodexExplanationModal({
+			requestKey,
+			subject: "question",
+			title: "Codex answer",
+			subtitle: selectedDiffContextLabel(),
+			status: "loading",
+			body: "",
+			scrollOffset: 0,
+		})
+		void explainDiffSelection({
+			kind: "question",
+			repository: selectedPullRequest.repository,
+			number: selectedPullRequest.number,
+			title: selectedPullRequest.title,
+			url: selectedPullRequest.url,
+			baseRefName: selectedPullRequest.baseRefName,
+			headRefName: selectedPullRequest.headRefName,
+			checkoutPath: currentCheckoutPath(),
+			question,
+			path: file.name,
+			side: lineAnchor?.side ?? null,
+			line: lineAnchor?.line ?? null,
+			selectedText: lineAnchor?.text ?? null,
+			filePatch: file.patch,
+		})
+			.then((body) => {
+				setCodexExplanationModal((current) => (current.requestKey === requestKey ? { ...current, status: "ready", body } : current))
+			})
+			.catch((error) => {
+				setCodexExplanationModal((current) => (current.requestKey === requestKey ? { ...current, status: "error", body: errorMessage(error) } : current))
+			})
+	}
+
+	const clearCodexQuestion = () => setCodexQuestionModal((current) => ({ ...current, question: "", error: null }))
+	const deleteCodexQuestionWord = () => setCodexQuestionModal((current) => ({ ...current, question: deleteLastWord(current.question), error: null }))
+
 	const explainSelectedDiffRange = () => {
 		if (!selectedPullRequest) return
+		if (!ensureCodexCheckout()) return
 
 		const explanation =
 			selectedDiffCommentRange && selectedDiffCommentRangeAnchors.length > 0
@@ -1649,6 +1882,8 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 						const endLine = Math.max(selectedDiffCommentRange.start.line, selectedDiffCommentRange.end.line)
 						const path = selectedDiffCommentRange.end.path
 						const side = selectedDiffCommentRange.end.side
+						const file = readyDiffFiles.find((file) => file.name === path)
+						if (!file) return null
 						return {
 							requestKey: [
 								selectedPullRequest.url,
@@ -1670,6 +1905,7 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 								url: selectedPullRequest.url,
 								baseRefName: selectedPullRequest.baseRefName,
 								headRefName: selectedPullRequest.headRefName,
+								checkoutPath: currentCheckoutPath(),
 								path,
 								side,
 								startLine,
@@ -1680,16 +1916,18 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 									line: anchor.line,
 									text: anchor.text,
 								})),
+								filePatch: file.patch,
 							},
 						}
 					})()
 				: (() => {
-						if (readyDiffFiles.length === 0) return null
+						const file = currentDiffFile()
+						if (!file) return null
 						return {
-							requestKey: [selectedPullRequest.url, "whole", selectedPullRequest.headRefOid, diffWhitespaceMode, readyDiffFiles.length].join(":"),
+							requestKey: [selectedPullRequest.url, "file", selectedPullRequest.headRefOid, diffWhitespaceMode, file.name].join(":"),
 							subject: "whole" as const,
-							title: "Explain whole diff",
-							subtitle: `${readyDiffFiles.length} ${readyDiffFiles.length === 1 ? "file" : "files"}`,
+							title: "Explain file diff",
+							subtitle: file.name,
 							input: {
 								kind: "whole" as const,
 								repository: selectedPullRequest.repository,
@@ -1698,7 +1936,8 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 								url: selectedPullRequest.url,
 								baseRefName: selectedPullRequest.baseRefName,
 								headRefName: selectedPullRequest.headRefName,
-								files: readyDiffFiles.map((file) => ({
+								checkoutPath: currentCheckoutPath(),
+								files: [file].map((file) => ({
 									path: file.name,
 									patch: file.patch,
 								})),
@@ -1762,7 +2001,8 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 						diffCommentThreadAnchors[diffCommentThreadAnchors.length - 1])
 		if (!nextAnchor) return
 		setDiffCommentRangeStartIndex(null)
-		setDiffCommentAnchorIndex(diffCommentAnchors.indexOf(nextAnchor))
+		const nextTargetIndex = diffTargetIndexForAnchor(nextAnchor)
+		if (nextTargetIndex >= 0) setDiffCommentAnchorIndex(nextTargetIndex)
 		setDiffFileIndex(nextAnchor.fileIndex)
 	}
 
@@ -2003,6 +2243,10 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 		if (text.length === 0) return false
 		if (commandPaletteActive) {
 			setCommandPalette((current) => ({ ...current, query: current.query + singleLineText(text), selectedIndex: 0 }))
+			return true
+		}
+		if (codexQuestionModalActive) {
+			setCodexQuestionModal((current) => ({ ...current, question: current.question + singleLineText(text), error: null }))
 			return true
 		}
 		if (openRepositoryModalActive) {
@@ -2339,6 +2583,7 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 		flags: {
 			closeModalActive,
 			codexExplanationModalActive,
+			codexQuestionModalActive,
 			commentImplementationModalActive,
 			pullRequestStateModalActive,
 			mergeModalActive,
@@ -2359,6 +2604,7 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 			textInputActive:
 				commentModalActive ||
 				commandPaletteActive ||
+				codexQuestionModalActive ||
 				openRepositoryModalActive ||
 				changedFilesModalActive ||
 				submitReviewModalActive ||
@@ -2368,6 +2614,7 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 		},
 		closeModal: { closeActiveModal, confirmCloseModal },
 		codexExplanationModal: { halfPage, closeActiveModal, copyCodexExplanation, scrollCodexExplanation },
+		codexQuestionModal: { closeActiveModal, submitCodexQuestion, clearCodexQuestion, deleteCodexQuestionWord },
 		commentImplementationModal: { halfPage, closeActiveModal, confirmCommentImplementation, copyCommentImplementation, scrollCommentImplementation },
 		pullRequestStateModal: { closeActiveModal, confirmPullRequestStateChange, movePullRequestStateSelection },
 		mergeModal: { mergeModal, cancelOrCloseMergeModal, confirmMergeAction, cycleMergeMethod, moveMergeSelection },
@@ -2401,6 +2648,8 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 			moveDiffCommentToBoundary,
 			alignSelectedDiffCommentAnchor,
 			selectDiffCommentSide,
+			openCodexQuestionModal,
+			toggleReviewedDiffSelection,
 		},
 		detail: { halfPage, activeSurface: activeWorkspaceSurface, scrollDetailFullViewBy, scrollDetailFullViewTo, runCommandById },
 		commentsView: {
@@ -2461,6 +2710,7 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 
 	useTextInputDispatcher({
 		commandPaletteActive,
+		codexQuestionModalActive,
 		openRepositoryModalActive,
 		themeModalActive,
 		commentModalActive,
@@ -2477,6 +2727,7 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 		activeWorkspaceSurface,
 		switchWorkspaceSurface,
 		setCommandPalette,
+		setCodexQuestionModal,
 		setOpenRepositoryModal,
 		setChangedFilesModal,
 		setLabelModal,
@@ -2631,6 +2882,7 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 	})()
 	const closeLayout = sizedModal(46, 68, 12, 12)
 	const codexExplanationLayout = sizedModal(58, 92, 8, 24)
+	const codexQuestionLayout = sizedModal(52, 84, 8, 8)
 	const commentImplementationLayout = sizedModal(62, 100, 6, 28)
 	const deleteCommentLayout = sizedModal(46, 68, 12, 12)
 	const pullRequestStateLayout = sizedModal(46, 68, 12, 9)
@@ -2775,6 +3027,9 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 					selectedCommentAnchor={selectedDiffCommentAnchor}
 					selectedCommentLabel={selectedDiffCommentLabel}
 					selectedCommentThread={selectedDiffCommentThread}
+					selectedFileIndex={selectedDiffNavigationTarget?._tag === "file" ? selectedDiffNavigationTarget.fileIndex : null}
+					reviewedAnchors={reviewedDiffAnchors}
+					reviewedFileStats={reviewedDiffFileStats}
 					onSelectCommentLine={selectDiffCommentLine}
 					themeId={themeId}
 					themeGeneration={systemThemeGeneration}
@@ -3095,6 +3350,7 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 					Label: labelLayout,
 					Close: closeLayout,
 					CodexExplanation: codexExplanationLayout,
+					CodexQuestion: codexQuestionLayout,
 					CommentImplementation: commentImplementationLayout,
 					PullRequestState: pullRequestStateLayout,
 					Comment: commentLayout,

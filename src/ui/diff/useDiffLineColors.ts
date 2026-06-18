@@ -51,10 +51,16 @@ const selectedDiffCommentAccent = (kind: DiffCommentKind) => selectedDiffComment
 
 const mixDiffLineContentColor = (base: string, accent: string, amount: number) => mixHex(base === "transparent" ? colors.background : base, accent, amount)
 
-const diffCommentLineColor = (anchor: DiffCommentAnchor, kind: "selected" | "range" | "thread"): DiffLineColorConfig => {
+const diffCommentLineColor = (anchor: DiffCommentAnchor, kind: "selected" | "range" | "thread" | "reviewed"): DiffLineColorConfig => {
 	const original = originalDiffLineColor(anchor)
-	const accent = kind === "thread" ? colors.status.pending : selectedDiffCommentAccent(anchor.kind)
+	const accent = kind === "thread" ? colors.status.pending : kind === "reviewed" ? colors.link : selectedDiffCommentAccent(anchor.kind)
 	if (kind === "thread") return { ...original, gutter: mixHex(original.gutter, accent, 0.3) }
+	if (kind === "reviewed") {
+		return {
+			gutter: mixHex(original.gutter, accent, 0.68),
+			content: mixDiffLineContentColor(original.content, accent, 0.16),
+		}
+	}
 	return {
 		gutter: mixHex(original.gutter, accent, kind === "selected" ? 0.38 : 0.26),
 		content: mixDiffLineContentColor(original.content, accent, kind === "selected" ? 0.2 : 0.1),
@@ -82,6 +88,7 @@ export interface UseDiffLineColorsInput {
 	readonly selectedDiffCommentAnchor: StackedDiffCommentAnchor | null
 	readonly selectedDiffCommentRangeAnchors: readonly StackedDiffCommentAnchor[]
 	readonly diffCommentThreadAnchors: readonly StackedDiffCommentAnchor[]
+	readonly reviewedDiffAnchors: readonly StackedDiffCommentAnchor[]
 	readonly suppressNextDiffCommentScrollRef: MutableRefObject<boolean>
 	readonly ensureDiffLineVisible: (line: number) => void
 }
@@ -108,6 +115,7 @@ export const useDiffLineColors = ({
 	selectedDiffCommentAnchor,
 	selectedDiffCommentRangeAnchors,
 	diffCommentThreadAnchors,
+	reviewedDiffAnchors,
 	suppressNextDiffCommentScrollRef,
 	ensureDiffLineVisible,
 }: UseDiffLineColorsInput): UseDiffLineColorsResult => {
@@ -142,7 +150,7 @@ export const useDiffLineColors = ({
 		const nextEntries: AppliedDiffLineColor[] = []
 		const appliedKeys = new Set<string>()
 		const applyLineColor = (anchor: StackedDiffCommentAnchor, color: DiffLineColorConfig, override = false) => {
-			const key = `${effectiveDiffRenderView}:${anchor.side}:${anchor.renderLine}`
+			const key = `${effectiveDiffRenderView}:${anchor.fileIndex}:${anchor.side}:${anchor.renderLine}`
 			if (appliedKeys.has(key) && !override) return
 			appliedKeys.add(key)
 			const entry = { anchor, view: effectiveDiffRenderView, color } satisfies AppliedDiffLineColor
@@ -153,6 +161,9 @@ export const useDiffLineColors = ({
 			}
 		}
 
+		for (const anchor of reviewedDiffAnchors) {
+			applyLineColor(anchor, diffCommentLineColor(anchor, "reviewed"))
+		}
 		for (const anchor of diffCommentThreadAnchors) {
 			applyLineColor(anchor, diffCommentLineColor(anchor, "thread"))
 		}
@@ -201,6 +212,7 @@ export const useDiffLineColors = ({
 		diffLineColorContextKey,
 		effectiveDiffRenderView,
 		diffCommentThreadAnchors,
+		reviewedDiffAnchors,
 	])
 
 	const setDiffRenderableRef = (index: number, diff: DiffRenderable | null) => {

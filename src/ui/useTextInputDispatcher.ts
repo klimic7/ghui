@@ -1,12 +1,21 @@
 import { useKeyboard } from "@opentui/react"
 import type { WorkspaceSurface } from "../workspaceSurfaces.js"
 import { type CommentEditorValue, insertText } from "./commentEditor.js"
-import type { ChangedFilesModalState, CommandPaletteState, LabelModalState, OpenRepositoryModalState, SubmitReviewModalState, ThemeModalState } from "./modals.js"
+import type {
+	ChangedFilesModalState,
+	CodexQuestionModalState,
+	CommandPaletteState,
+	LabelModalState,
+	OpenRepositoryModalState,
+	SubmitReviewModalState,
+	ThemeModalState,
+} from "./modals.js"
 import { editSingleLineInput, isSingleLineInputKey, printableKeyText } from "./singleLineInput.js"
 
 export interface UseTextInputDispatcherInput {
 	// Modal active flags
 	readonly commandPaletteActive: boolean
+	readonly codexQuestionModalActive: boolean
 	readonly openRepositoryModalActive: boolean
 	readonly themeModalActive: boolean
 	readonly commentModalActive: boolean
@@ -29,6 +38,7 @@ export interface UseTextInputDispatcherInput {
 
 	// Per-modal text-input setters
 	readonly setCommandPalette: (next: CommandPaletteState | ((prev: CommandPaletteState) => CommandPaletteState)) => void
+	readonly setCodexQuestionModal: (next: CodexQuestionModalState | ((prev: CodexQuestionModalState) => CodexQuestionModalState)) => void
 	readonly setOpenRepositoryModal: (next: OpenRepositoryModalState | ((prev: OpenRepositoryModalState) => OpenRepositoryModalState)) => void
 	readonly setChangedFilesModal: (next: ChangedFilesModalState | ((prev: ChangedFilesModalState) => ChangedFilesModalState)) => void
 	readonly setLabelModal: (next: LabelModalState | ((prev: LabelModalState) => LabelModalState)) => void
@@ -60,6 +70,17 @@ export const useTextInputDispatcher = (input: UseTextInputDispatcherInput): void
 					const query = editSingleLineInput(current.query, key) ?? current.query
 					return current.query === query && current.selectedIndex === 0 ? current : { ...current, query, selectedIndex: 0 }
 				})
+			}
+			return
+		}
+
+		if (input.codexQuestionModalActive) {
+			if (isSingleLineInputKey(key)) {
+				input.setCodexQuestionModal((current) => ({
+					...current,
+					question: editSingleLineInput(current.question, key) ?? current.question,
+					error: null,
+				}))
 			}
 			return
 		}

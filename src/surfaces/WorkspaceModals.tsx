@@ -6,6 +6,7 @@ import {
 	type ChangedFileSearchResult,
 	CloseModal,
 	CodexExplanationModal,
+	CodexQuestionModal,
 	CommentImplementationModal,
 	CommentModal,
 	CommentThreadModal,
@@ -61,6 +62,7 @@ export const WorkspaceModals = (props: WorkspaceModalsProps) =>
 		Label: (state) => <LabelModal state={state} currentLabels={props.selectedItemLabels} loadingIndicator={props.loadingIndicator} {...layoutToProps(props.layouts.Label)} />,
 		Close: (state) => <CloseModal state={state} loadingIndicator={props.loadingIndicator} {...layoutToProps(props.layouts.Close)} />,
 		CodexExplanation: (state) => <CodexExplanationModal state={state} loadingIndicator={props.loadingIndicator} {...layoutToProps(props.layouts.CodexExplanation)} />,
+		CodexQuestion: (state) => <CodexQuestionModal state={state} {...layoutToProps(props.layouts.CodexQuestion)} />,
 		CommentImplementation: (state) => (
 			<CommentImplementationModal state={state} loadingIndicator={props.loadingIndicator} {...layoutToProps(props.layouts.CommentImplementation)} />
 		),

@@ -75,12 +75,18 @@ export interface CommentThreadModalState {
 
 export interface CodexExplanationModalState {
 	readonly requestKey: string
-	readonly subject: "range" | "whole"
+	readonly subject: "range" | "whole" | "question"
 	readonly title: string
 	readonly subtitle: string
 	readonly status: "loading" | "ready" | "error"
 	readonly body: string
 	readonly scrollOffset: number
+}
+
+export interface CodexQuestionModalState {
+	readonly question: string
+	readonly error: string | null
+	readonly contextLabel: string
 }
 
 export interface CommentImplementationModalState {
@@ -213,6 +219,12 @@ export const initialCodexExplanationModalState: CodexExplanationModalState = {
 	scrollOffset: 0,
 }
 
+export const initialCodexQuestionModalState: CodexQuestionModalState = {
+	question: "",
+	error: null,
+	contextLabel: "",
+}
+
 export const initialCommentImplementationModalState: CommentImplementationModalState = {
 	requestKey: "",
 	input: null,
@@ -281,6 +293,7 @@ export type Modal = Data.TaggedEnum<{
 	DeleteComment: DeleteCommentModalState
 	CommentThread: CommentThreadModalState
 	CodexExplanation: CodexExplanationModalState
+	CodexQuestion: CodexQuestionModalState
 	CommentImplementation: CommentImplementationModalState
 	ChangedFiles: ChangedFilesModalState
 	Filter: FilterModalState
@@ -305,6 +318,7 @@ export const modalInitialStates = {
 	DeleteComment: initialDeleteCommentModalState,
 	CommentThread: initialCommentThreadModalState,
 	CodexExplanation: initialCodexExplanationModalState,
+	CodexQuestion: initialCodexQuestionModalState,
 	CommentImplementation: initialCommentImplementationModalState,
 	ChangedFiles: initialChangedFilesModalState,
 	Filter: initialFilterModalState,

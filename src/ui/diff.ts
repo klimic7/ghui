@@ -327,10 +327,16 @@ export const pullRequestDiffKey = (pullRequest: PullRequestItem) => `${pullReque
 
 export const safeDiffFileIndex = (files: readonly DiffFilePatch[], index: number) => (files.length > 0 ? Math.max(0, Math.min(index, files.length - 1)) : 0)
 
-export const buildStackedDiffFiles = (files: readonly DiffFilePatch[], view: DiffView, wrapMode: DiffWrapMode, width: number): readonly StackedDiffFilePatch[] => {
+export const buildStackedDiffFiles = (
+	files: readonly DiffFilePatch[],
+	view: DiffView,
+	wrapMode: DiffWrapMode,
+	width: number,
+	collapsedFileIndexes: ReadonlySet<number> = new Set(),
+): readonly StackedDiffFilePatch[] => {
 	let offset = 0
 	return files.map((file, index) => {
-		const diffHeight = patchRenderableLineCount(file.patch, view, wrapMode, width)
+		const diffHeight = collapsedFileIndexes.has(index) ? 0 : patchRenderableLineCount(file.patch, view, wrapMode, width)
 		const separatorBefore = index === 0 ? 0 : 1
 		const headerLine = offset + separatorBefore
 		const stackedFile = {

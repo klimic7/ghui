@@ -11,6 +11,8 @@ export interface BuildDiffViewCtxInput {
 	readonly moveDiffCommentToBoundary: (boundary: "first" | "last") => void
 	readonly alignSelectedDiffCommentAnchor: (position: "top" | "center" | "bottom") => void
 	readonly selectDiffCommentSide: (side: DiffCommentSide) => void
+	readonly openCodexQuestionModal: () => void
+	readonly toggleReviewedDiffSelection: () => void
 }
 
 export const buildDiffViewCtx = ({
@@ -23,6 +25,8 @@ export const buildDiffViewCtx = ({
 	moveDiffCommentToBoundary,
 	alignSelectedDiffCommentAnchor,
 	selectDiffCommentSide,
+	openCodexQuestionModal,
+	toggleReviewedDiffSelection,
 }: BuildDiffViewCtxInput): DiffViewCtx => ({
 	halfPage,
 	handleEscape: () => {
@@ -42,6 +46,8 @@ export const buildDiffViewCtx = ({
 	selectSide: selectDiffCommentSide,
 	openChangedFiles: () => runCommandById("diff.changed-files"),
 	explainRange: () => runCommandById("diff.explain-range"),
+	askQuestion: openCodexQuestionModal,
+	toggleReviewed: toggleReviewedDiffSelection,
 	openSubmitReview: () => runCommandById("pull.submit-review"),
 	nextFile: () => runCommandById("diff.next-file"),
 	previousFile: () => runCommandById("diff.previous-file"),

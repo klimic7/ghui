@@ -38,7 +38,13 @@ export const CodexExplanationModal = ({
 	const title = state.status === "loading" ? `${loadingIndicator} ${state.title}` : state.title
 	const body =
 		state.status === "loading"
-			? [state.subject === "whole" ? "Asking Codex about the whole diff..." : "Asking Codex about the selected diff range..."]
+			? [
+					state.subject === "whole"
+						? "Asking Codex about the selected diff..."
+						: state.subject === "question"
+							? "Asking Codex with project context..."
+							: "Asking Codex about the selected diff range...",
+				]
 			: wrapText(state.body.length > 0 ? state.body : "No explanation returned.", contentWidth)
 	const maxScroll = Math.max(0, body.length - bodyHeight)
 	const scrollOffset = Math.max(0, Math.min(state.scrollOffset, maxScroll))
