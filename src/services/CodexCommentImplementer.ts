@@ -144,7 +144,7 @@ export class CodexCommentImplementer extends Context.Service<
 					return yield* new CommandError({
 						command: "git",
 						args: ["rev-parse", "--show-toplevel"],
-						detail: `Current directory is not a git checkout. To implement review comments, start ghui from the local checkout for ${input.repository}.`,
+						detail: `Current directory is not a git checkout (${initialWorkingDirectory}). To implement review comments, start ghui from the local checkout for ${input.repository}.`,
 						cause: initialWorkingDirectory,
 					})
 				}
@@ -153,7 +153,7 @@ export class CodexCommentImplementer extends Context.Service<
 					return yield* new CommandError({
 						command: "git",
 						args: ["remote", "-v"],
-						detail: `Current checkout is not ${input.repository}. To implement review comments, start ghui from the local checkout for ${input.repository}.`,
+						detail: `Current checkout is not ${input.repository} (${checkoutPath}). To implement review comments, start ghui from the local checkout for ${input.repository}.`,
 						cause: remotes.stdout,
 					})
 				}

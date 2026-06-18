@@ -1872,7 +1872,7 @@ export const App = ({ systemThemeGeneration = 0 }: AppProps) => {
 		if (!selectedPullRequest) return false
 		if (detectedRepository === selectedPullRequest.repository) return true
 		const actual = detectedRepository ? `aktuální checkout je ${detectedRepository}` : "aktuální složka není GitHub git checkout"
-		flashNotice(`Codex tu není dostupný: ${actual}; spusť ghui ve složce ${selectedPullRequest.repository}.`)
+		flashNotice(`Codex tu není dostupný: ${actual} (${initialWorkingDirectory}); spusť ghui ve složce ${selectedPullRequest.repository}.`)
 		return false
 	}
 	const selectedDiffContextLabel = () => {
